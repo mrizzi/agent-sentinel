@@ -1,9 +1,8 @@
-# Deny known vulnerabilities; warn on unmaintained/yanked crates
+# Deny known vulnerabilities; check all crates for unmaintained/yanked status
 [advisories]
 vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-notice = "warn"
+unmaintained = "workspace"
+yanked = "workspace"
 
 # Only allow permissive licenses compatible with Apache-2.0.
 # Copyleft licenses (GPL, AGPL, etc.) are denied to avoid
