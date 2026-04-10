@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "response": {
+    "summary": "Add OAuth2 login",
+    "requirements": [
+      {"id": "REQ_1", "text": "OAuth2 login flow", "priority": "high"}
+    ],
+    "acceptance_criteria": [
+      {"id": "AC_1", "description": "Users can authenticate via OAuth2"}
+    ],
+    "status": "To Do"
+  },
+  "metadata": {},
+  "error": null
+}

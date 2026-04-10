@@ -1,0 +1,9 @@
+{
+  "key": "TC-42",
+  "fields": {
+    "summary": "Add OAuth2 login",
+    "description": "## Requirements\n1. OAuth2 login flow\n\n## Acceptance Criteria\n- Users can authenticate via OAuth2",
+    "status": {"name": "To Do"},
+    "priority": {"name": "High"}
+  }
+}
