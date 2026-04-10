@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 pub struct HookInput {
     pub session_id: Option<String>,
+    #[allow(dead_code)] // Part of Claude Code's wire format
     pub hook_event_name: Option<String>,
     pub tool_name: String,
     pub tool_input: Option<serde_json::Value>,

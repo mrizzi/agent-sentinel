@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 pub struct ProcessOutput {
     pub exit_code: i32,
     pub stdout: String,
+    #[allow(dead_code)] // Available for error diagnostics
     pub stderr: String,
 }
 
