@@ -55,8 +55,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn fixture_path() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/tool-registry.json")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tool-registry.json")
     }
 
     #[test]

@@ -6,15 +6,19 @@ use tempfile::TempDir;
 /// Create a mock fortified-llm-client that returns a fixed JSON response
 fn create_mock_flc(dir: &std::path::Path) -> String {
     let fixture = fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/flc-success.json")
-    ).unwrap();
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/flc-success.json"),
+    )
+    .unwrap();
 
     let script_path = dir.join("mock-flc");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::write(&script_path, format!("#!/bin/sh\ncat <<'EOF'\n{fixture}\nEOF\n")).unwrap();
+        fs::write(
+            &script_path,
+            format!("#!/bin/sh\ncat <<'EOF'\n{fixture}\nEOF\n"),
+        )
+        .unwrap();
         fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
     }
     script_path.to_str().unwrap().to_string()
@@ -57,7 +61,8 @@ fn create_test_registry(security_dir: &std::path::Path) {
     fs::write(
         security_dir.join("tool-registry.json"),
         serde_json::to_string_pretty(&registry).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create mock config file (just needs to exist)
     fs::create_dir_all(security_dir.join("config")).unwrap();
@@ -77,8 +82,9 @@ fn test_post_tool_use_full_flow() {
 
     let jira_response = fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/jira-task-response.json")
-    ).unwrap();
+            .join("tests/fixtures/jira-task-response.json"),
+    )
+    .unwrap();
 
     let input = serde_json::json!({
         "session_id": "test123",
@@ -90,7 +96,12 @@ fn test_post_tool_use_full_flow() {
 
     let output = Command::cargo_bin("agent-sentinel")
         .unwrap()
-        .args(["hook", "post-tool-use", "--security-dir", security_dir.path().to_str().unwrap()])
+        .args([
+            "hook",
+            "post-tool-use",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
         .env("SDLC_SESSION_DIR", session_dir.path())
         .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
         .env("SYMREF_BIN", &mock_symref)
@@ -98,11 +109,18 @@ fn test_post_tool_use_full_flow() {
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let response: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
-    assert_eq!(response["hookSpecificOutput"]["hookEventName"], "PostToolUse");
+    assert_eq!(
+        response["hookSpecificOutput"]["hookEventName"],
+        "PostToolUse"
+    );
     assert!(response["hookSpecificOutput"]["updatedMCPToolOutput"]["refs"].is_object());
 }
 
@@ -117,7 +135,8 @@ fn test_post_tool_use_passthrough_unknown_tool() {
     fs::write(
         security_dir.path().join("tool-registry.json"),
         serde_json::to_string_pretty(&registry).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let input = serde_json::json!({
         "tool_name": "mcp__github__list_repos",
@@ -127,7 +146,12 @@ fn test_post_tool_use_passthrough_unknown_tool() {
 
     Command::cargo_bin("agent-sentinel")
         .unwrap()
-        .args(["hook", "post-tool-use", "--security-dir", security_dir.path().to_str().unwrap()])
+        .args([
+            "hook",
+            "post-tool-use",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
         .env("SDLC_SESSION_DIR", "/tmp/test")
         .write_stdin(serde_json::to_string(&input).unwrap())
         .assert()
@@ -151,7 +175,8 @@ fn test_post_tool_use_fails_closed_without_session() {
     fs::write(
         security_dir.path().join("tool-registry.json"),
         serde_json::to_string_pretty(&registry).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let input = serde_json::json!({
         "tool_name": "mcp__atlassian__getJiraIssue",
@@ -161,7 +186,12 @@ fn test_post_tool_use_fails_closed_without_session() {
 
     Command::cargo_bin("agent-sentinel")
         .unwrap()
-        .args(["hook", "post-tool-use", "--security-dir", security_dir.path().to_str().unwrap()])
+        .args([
+            "hook",
+            "post-tool-use",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
         .env_remove("SDLC_SESSION_DIR")
         .write_stdin(serde_json::to_string(&input).unwrap())
         .assert()

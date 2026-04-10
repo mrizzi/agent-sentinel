@@ -18,7 +18,8 @@ pub fn run(security_dir: &Path) -> Result<()> {
     let session_dir = std::env::var("SDLC_SESSION_DIR")
         .context("SDLC_SESSION_DIR not set. Cannot quarantine without session.")?;
 
-    let tool_response = input.tool_response
+    let tool_response = input
+        .tool_response
         .as_deref()
         .context("Empty tool_response")?;
 
@@ -34,22 +35,24 @@ pub fn run(security_dir: &Path) -> Result<()> {
 
     // Derive prefix from tool_input
     let prefix_field = entry.prefix_from.as_deref().unwrap_or("issueIdOrKey");
-    let issue_key = input.tool_input_field(prefix_field)
+    let issue_key = input
+        .tool_input_field(prefix_field)
         .or_else(|| std::env::var("SDLC_TARGET_ISSUE").ok())
         .unwrap_or_else(|| "UNKNOWN".to_string());
     let prefix = derive_prefix(&issue_key);
 
     // Write tool_response to temp file (avoid ARG_MAX)
-    let temp_file = tempfile::NamedTempFile::new()
-        .context("Failed to create temp file")?;
+    let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file")?;
     std::fs::write(temp_file.path(), tool_response)?;
 
     // Invoke fortified-llm-client
     let flc_output = run_process(
         &flc_bin,
         &[
-            "--config-file", config_path.to_str().unwrap(),
-            "--user-file", temp_file.path().to_str().unwrap(),
+            "--config-file",
+            config_path.to_str().unwrap(),
+            "--user-file",
+            temp_file.path().to_str().unwrap(),
             "--quiet",
         ],
         None,
@@ -87,15 +90,18 @@ pub fn run(security_dir: &Path) -> Result<()> {
 
     if symref_output.exit_code != 0 {
         // symref failed — return extraction without refs
-        eprintln!("WARN: symref store failed (exit {})", symref_output.exit_code);
+        eprintln!(
+            "WARN: symref store failed (exit {})",
+            symref_output.exit_code
+        );
         let output = HookOutput::post_tool_use(flc_response["response"].clone());
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
 
     // Parse symref output and return refs
-    let symref_response: serde_json::Value = serde_json::from_str(&symref_output.stdout)
-        .context("Failed to parse symref output")?;
+    let symref_response: serde_json::Value =
+        serde_json::from_str(&symref_output.stdout).context("Failed to parse symref output")?;
 
     let output = HookOutput::post_tool_use(serde_json::json!({
         "issue_key": issue_key,
