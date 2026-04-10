@@ -1,0 +1,18 @@
+{
+  "post_tool_use": {
+    "mcp__atlassian__getJiraIssue": {
+      "config": "config/jira-task.toml",
+      "prefix_from": "issueIdOrKey"
+    },
+    "mcp__plugin_figma_figma__get_design_context": {
+      "config": "config/figma-design.toml",
+      "prefix_from": "nodeId"
+    }
+  },
+  "pre_tool_use": {
+    "mcp__atlassian__createJiraIssue": {},
+    "mcp__atlassian__editJiraIssue": {},
+    "mcp__atlassian__addCommentToJiraIssue": {},
+    "mcp__atlassian__transitionJiraIssue": {}
+  }
+}
