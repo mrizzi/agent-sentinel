@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::process::ExitCode;
 
 mod claude;
+mod hooks;
 mod process;
 mod registry;
 
@@ -56,26 +57,25 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Commands::Hook { hook } => match hook {
             HookCommands::SessionStart { security_dir } => {
-                eprintln!("session-start: not yet implemented (security_dir={security_dir})");
-                Ok(())
+                hooks::session_start::run(std::path::Path::new(&security_dir))
             }
             HookCommands::PostToolUse { security_dir } => {
-                eprintln!("post-tool-use: not yet implemented (security_dir={security_dir})");
-                Ok(())
+                hooks::post_tool_use::run(std::path::Path::new(&security_dir))
             }
             HookCommands::PreToolUse { security_dir } => {
-                eprintln!("pre-tool-use: not yet implemented (security_dir={security_dir})");
-                Ok(())
+                hooks::pre_tool_use::run(std::path::Path::new(&security_dir))
             }
             HookCommands::SessionEnd { security_dir } => {
-                eprintln!("session-end: not yet implemented (security_dir={security_dir})");
-                Ok(())
+                hooks::session_end::run(std::path::Path::new(&security_dir))
             }
         },
     };
 
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err::<_, anyhow::Error>(_) => ExitCode::from(2),
+        Err(e) => {
+            eprintln!("FATAL: {e:#}");
+            ExitCode::from(2)
+        }
     }
 }
