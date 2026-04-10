@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::process::ExitCode;
 
+mod claude;
+
 #[derive(Parser)]
 #[command(name = "agent-sentinel")]
 #[command(about = "Security hook engine for the Dual LLM pattern")]
