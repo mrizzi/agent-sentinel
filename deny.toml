@@ -1,9 +1,13 @@
+# Deny known vulnerabilities; warn on unmaintained/yanked crates
 [advisories]
 vulnerability = "deny"
 unmaintained = "warn"
 yanked = "warn"
 notice = "warn"
 
+# Only allow permissive licenses compatible with Apache-2.0.
+# Copyleft licenses (GPL, AGPL, etc.) are denied to avoid
+# distribution obligations that conflict with this project's license.
 [licenses]
 unlicensed = "deny"
 allow = [
@@ -17,12 +21,18 @@ allow = [
 ]
 copyleft = "deny"
 
+# Deny wildcard version requirements (e.g., dep = "*") to ensure
+# reproducible builds. Warn on duplicate versions to track bloat.
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
 
+# Only allow crates from crates.io; no unknown registries or git deps
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-registry = [
+    "https://github.com/rust-lang/crates.io-index",
+    "https://index.crates.io",
+]
 allow-git = []
