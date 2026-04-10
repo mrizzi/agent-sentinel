@@ -1,0 +1,269 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.1.0). Tag must already exist."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  BINARY_NAME: agent-sentinel
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            use_cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-14
+            use_cross: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Validate tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! git tag -l "$TAG" | grep -q .; then
+            echo "::error::Tag '${TAG}' does not exist. Create the tag first."
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build release binary
+        env:
+          USE_CROSS: ${{ matrix.use_cross }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          if [ "$USE_CROSS" = "true" ]; then
+            cross build --locked --release --target "$TARGET"
+          else
+            cargo build --locked --release --target "$TARGET"
+          fi
+
+      - name: Package artifacts
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+          TARGET: ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+
+          # Archive: binary + LICENSE
+          ARCHIVE_DIR="${BINARY_NAME}-${TAG}-${TARGET}"
+          mkdir -p "${ARCHIVE_DIR}"
+          cp "target/${TARGET}/release/${BINARY_NAME}" "${ARCHIVE_DIR}/"
+          cp LICENSE "${ARCHIVE_DIR}/"
+          tar czf "staging/${ARCHIVE_DIR}.tar.gz" "${ARCHIVE_DIR}"
+
+          # Raw binary with target suffix
+          cp "target/${TARGET}/release/${BINARY_NAME}" "staging/${BINARY_NAME}-${TARGET}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ matrix.target }}
+          path: staging/*
+          if-no-files-found: error
+
+  checksums:
+    name: Generate checksums
+    runs-on: ubuntu-latest
+    needs: [build]
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          merge-multiple: true
+          path: release-files
+
+      - name: Generate SHA256 checksums
+        id: hash
+        working-directory: release-files
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          files=(*)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::No release files found"
+            exit 1
+          fi
+          echo "Found ${#files[@]} release files"
+
+          # Compute hashes once, reuse for file and SLSA input
+          HASHES=$(sha256sum *)
+          echo "$HASHES" > ../SHA256SUMS
+          echo "SHA256SUMS:"
+          cat ../SHA256SUMS
+
+          # Base64-encode for SLSA provenance input
+          ENCODED=$(echo "$HASHES" | base64 -w0)
+          if [ -z "$ENCODED" ]; then
+            echo "::error::Base64 encoding produced empty output"
+            exit 1
+          fi
+          echo "hashes=${ENCODED}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: SHA256SUMS
+          if-no-files-found: error
+
+  provenance:
+    name: SLSA provenance
+    needs: [checksums]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: "${{ needs.checksums.outputs.hashes }}"
+      upload-assets: true
+      upload-tag-name: ${{ needs.checksums.outputs.tag }}
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build, checksums, provenance]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.checksums.outputs.tag }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          merge-multiple: true
+          path: release-assets
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: release-assets
+
+      - name: Generate changelog
+        id: changelog
+        env:
+          TAG: ${{ needs.checksums.outputs.tag }}
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null) || true
+          if [ -z "$PREV_TAG" ]; then
+            echo "::notice::No previous tag found — this appears to be the first release"
+            LOG="Initial release"
+          else
+            LOG=$(git log --pretty=format:"- %s (%h)" "${PREV_TAG}..${TAG}")
+            if [ -z "$LOG" ]; then
+              LOG="No changes since ${PREV_TAG}"
+            fi
+          fi
+          {
+            echo "changelog<<EOF"
+            echo "$LOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          TAG: ${{ needs.checksums.outputs.tag }}
+          CHANGELOG: ${{ steps.changelog.outputs.changelog }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          BODY="## What's Changed
+
+          ${CHANGELOG}
+
+          ## Installation
+
+          Download the archive or raw binary for your platform. Verify checksums:
+          \`\`\`bash
+          sha256sum -c SHA256SUMS
+          \`\`\`
+
+          ## SLSA 3 Provenance
+
+          This release includes [SLSA Build Level 3](https://slsa.dev) provenance. Verify with:
+          \`\`\`bash
+          slsa-verifier verify-artifact <artifact> \\
+            --provenance-path multiple.intoto.jsonl \\
+            --source-uri github.com/${REPO}
+          \`\`\`"
+
+          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            echo "::warning::Release ${TAG} already exists — overwriting assets"
+            gh release edit "$TAG" --repo "$REPO" \
+              --title "$TAG" \
+              --notes "$BODY"
+            gh release upload "$TAG" --repo "$REPO" --clobber release-assets/*
+          else
+            gh release create "$TAG" --repo "$REPO" \
+              --title "$TAG" \
+              --notes "$BODY" \
+              release-assets/*
+          fi

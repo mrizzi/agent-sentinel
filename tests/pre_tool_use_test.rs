@@ -36,7 +36,8 @@ fn test_pre_tool_use_deref() {
     fs::write(
         security_dir.path().join("tool-registry.json"),
         serde_json::to_string_pretty(&registry).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let mock_symref = create_mock_symref_deref(tmp.path());
 
@@ -50,17 +51,29 @@ fn test_pre_tool_use_deref() {
 
     let output = Command::cargo_bin("agent-sentinel")
         .unwrap()
-        .args(["hook", "pre-tool-use", "--security-dir", security_dir.path().to_str().unwrap()])
+        .args([
+            "hook",
+            "pre-tool-use",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
         .env("SDLC_SESSION_DIR", session_dir.path())
         .env("SYMREF_BIN", &mock_symref)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
 
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let response: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(response["hookSpecificOutput"]["hookEventName"], "PreToolUse");
+    assert_eq!(
+        response["hookSpecificOutput"]["hookEventName"],
+        "PreToolUse"
+    );
     assert!(response["hookSpecificOutput"]["updatedInput"].is_object());
 }
 
@@ -75,7 +88,8 @@ fn test_pre_tool_use_passthrough_unknown_tool() {
     fs::write(
         security_dir.path().join("tool-registry.json"),
         serde_json::to_string_pretty(&registry).unwrap(),
-    ).unwrap();
+    )
+    .unwrap();
 
     let input = serde_json::json!({
         "tool_name": "mcp__github__create_pr",
@@ -84,7 +98,12 @@ fn test_pre_tool_use_passthrough_unknown_tool() {
 
     Command::cargo_bin("agent-sentinel")
         .unwrap()
-        .args(["hook", "pre-tool-use", "--security-dir", security_dir.path().to_str().unwrap()])
+        .args([
+            "hook",
+            "pre-tool-use",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
         .write_stdin(serde_json::to_string(&input).unwrap())
         .assert()
         .success()

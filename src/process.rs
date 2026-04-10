@@ -33,28 +33,29 @@ pub fn find_binary(name: &str, env_var: &str) -> Result<String> {
 /// Run a subprocess and capture output
 pub fn run_process(binary: &str, args: &[&str], stdin_data: Option<&str>) -> Result<ProcessOutput> {
     let mut cmd = Command::new(binary);
-    cmd.args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
 
     if stdin_data.is_some() {
         cmd.stdin(Stdio::piped());
     }
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .with_context(|| format!("Failed to spawn {binary}"))?;
 
     if let Some(data) = stdin_data {
         use std::io::Write;
         if let Some(ref mut stdin) = child.stdin {
-            stdin.write_all(data.as_bytes())
+            stdin
+                .write_all(data.as_bytes())
                 .with_context(|| format!("Failed to write stdin to {binary}"))?;
         }
         // Drop stdin to signal EOF
         child.stdin.take();
     }
 
-    let output = child.wait_with_output()
+    let output = child
+        .wait_with_output()
         .with_context(|| format!("Failed to wait for {binary}"))?;
 
     Ok(ProcessOutput {

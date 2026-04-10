@@ -35,7 +35,8 @@ pub fn run(security_dir: &Path) -> Result<()> {
         }
     };
 
-    let tool_input = input.tool_input
+    let tool_input = input
+        .tool_input
         .as_ref()
         .map(|v| v.to_string())
         .unwrap_or_else(|| "{}".to_string());
@@ -47,7 +48,10 @@ pub fn run(security_dir: &Path) -> Result<()> {
     )?;
 
     if deref_output.exit_code != 0 {
-        eprintln!("WARN: symref deref failed (exit {}). Passthrough.", deref_output.exit_code);
+        eprintln!(
+            "WARN: symref deref failed (exit {}). Passthrough.",
+            deref_output.exit_code
+        );
         return Ok(());
     }
 

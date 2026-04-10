@@ -18,7 +18,12 @@ fn test_session_end_copies_transcript() {
 
     Command::cargo_bin("agent-sentinel")
         .unwrap()
-        .args(["hook", "session-end", "--security-dir", security_dir.path().to_str().unwrap()])
+        .args([
+            "hook",
+            "session-end",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
         .env("SDLC_SESSION_DIR", session_dir.path())
         .write_stdin(serde_json::to_string(&input).unwrap())
         .assert()
@@ -40,7 +45,12 @@ fn test_session_end_graceful_without_session_dir() {
 
     Command::cargo_bin("agent-sentinel")
         .unwrap()
-        .args(["hook", "session-end", "--security-dir", security_dir.path().to_str().unwrap()])
+        .args([
+            "hook",
+            "session-end",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
         .env_remove("SDLC_SESSION_DIR")
         .write_stdin(serde_json::to_string(&input).unwrap())
         .assert()

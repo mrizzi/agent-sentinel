@@ -9,8 +9,7 @@ pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
     let target_issue = std::env::var("SDLC_TARGET_ISSUE")
         .context("SDLC_TARGET_ISSUE environment variable not set")?;
 
-    let env_file = std::env::var("CLAUDE_ENV_FILE")
-        .context("CLAUDE_ENV_FILE not available")?;
+    let env_file = std::env::var("CLAUDE_ENV_FILE").context("CLAUDE_ENV_FILE not available")?;
 
     let session_id = input.session_id.unwrap_or_default();
     let cwd = input.cwd.unwrap_or_default();
@@ -21,8 +20,7 @@ pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
 
     fs::create_dir_all(format!("{session_dir}/evaluations"))
         .context("Failed to create evaluations dir")?;
-    fs::create_dir_all(format!("{session_dir}/output"))
-        .context("Failed to create output dir")?;
+    fs::create_dir_all(format!("{session_dir}/output")).context("Failed to create output dir")?;
 
     // Write scope.json
     let scope = serde_json::json!({ "issue_key": target_issue });
