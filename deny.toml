@@ -1,14 +1,10 @@
-# Deny known vulnerabilities; check all crates for unmaintained/yanked status
+# Advisories: all known vulnerabilities are denied by default.
+# Use `ignore` to suppress specific advisories if needed.
 [advisories]
-vulnerability = "deny"
-unmaintained = "workspace"
-yanked = "warn"
 
 # Only allow permissive licenses compatible with Apache-2.0.
-# Copyleft licenses (GPL, AGPL, etc.) are denied to avoid
-# distribution obligations that conflict with this project's license.
+# Any license not in this list is denied.
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -18,7 +14,6 @@ allow = [
     "BSD-3-Clause",
     "ISC",
 ]
-copyleft = "deny"
 
 # Deny wildcard version requirements (e.g., dep = "*") to ensure
 # reproducible builds. Warn on duplicate versions to track bloat.
@@ -26,7 +21,7 @@ copyleft = "deny"
 multiple-versions = "warn"
 wildcards = "deny"
 
-# Only allow crates from crates.io; no unknown registries or git deps
+# Only allow crates from crates.io; no unknown registries or git deps.
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
