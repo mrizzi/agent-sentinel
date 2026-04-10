@@ -1,2 +1,3 @@
 [toolchain]
+# MSRV — keep in sync with Cargo.toml rust-version and ci.yml msrv job
 channel = "1.85"

@@ -48,14 +48,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.tag || github.ref }}
-          fetch-depth: 0
 
       - name: Validate tag
         if: github.event_name == 'workflow_dispatch'
         env:
           TAG: ${{ inputs.tag }}
         run: |
-          if ! git tag -l "$TAG" | grep -q .; then
+          git fetch --tags
+          if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
             echo "::error::Tag '${TAG}' does not exist. Create the tag first."
             exit 1
           fi
@@ -79,11 +79,9 @@ jobs:
           USE_CROSS: ${{ matrix.use_cross }}
           TARGET: ${{ matrix.target }}
         run: |
-          if [ "$USE_CROSS" = "true" ]; then
-            cross build --locked --release --target "$TARGET"
-          else
-            cargo build --locked --release --target "$TARGET"
-          fi
+          set -euo pipefail
+          BUILD_CMD=$( [ "$USE_CROSS" = "true" ] && echo cross || echo cargo )
+          $BUILD_CMD build --locked --release --target "$TARGET"
 
       - name: Package artifacts
         env:
@@ -120,16 +118,7 @@ jobs:
     steps:
       - name: Resolve tag
         id: tag
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.tag }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "tag=${INPUT_TAG}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=${REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v4
         with:
@@ -151,14 +140,20 @@ jobs:
           fi
           echo "Found ${#files[@]} release files"
 
-          # Compute hashes once, reuse for file and SLSA input
+          # SHA256 checksums serve two purposes:
+          # 1. Published as SHA256SUMS file for user verification
+          # 2. Base64-encoded as input to SLSA provenance generator
           HASHES=$(sha256sum *)
-          echo "$HASHES" > ../SHA256SUMS
+          if [ -z "$HASHES" ]; then
+            echo "::error::sha256sum produced no output"
+            exit 1
+          fi
+          printf '%s' "$HASHES" > ../SHA256SUMS
           echo "SHA256SUMS:"
           cat ../SHA256SUMS
 
-          # Base64-encode for SLSA provenance input
-          ENCODED=$(echo "$HASHES" | base64 -w0)
+          # Use printf to avoid trailing newline in base64 encoding
+          ENCODED=$(printf '%s' "$HASHES" | base64 -w0)
           if [ -z "$ENCODED" ]; then
             echo "::error::Base64 encoding produced empty output"
             exit 1
@@ -178,6 +173,8 @@ jobs:
       actions: read
       id-token: write
       contents: write
+    # Pinned to specific version — update deliberately as provenance
+    # format may change between versions.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: "${{ needs.checksums.outputs.hashes }}"
@@ -212,6 +209,11 @@ jobs:
         env:
           TAG: ${{ needs.checksums.outputs.tag }}
         run: |
+          if ! git rev-parse "${TAG}^" >/dev/null 2>&1; then
+            echo "::error::Could not resolve ${TAG}^ — is the tag valid?"
+            exit 1
+          fi
+
           PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null) || true
           if [ -z "$PREV_TAG" ]; then
             echo "::notice::No previous tag found — this appears to be the first release"
@@ -222,10 +224,13 @@ jobs:
               LOG="No changes since ${PREV_TAG}"
             fi
           fi
+
+          # Use random delimiter to prevent injection via commit messages
+          DELIM=$(openssl rand -hex 16)
           {
-            echo "changelog<<EOF"
+            echo "changelog<<${DELIM}"
             echo "$LOG"
-            echo "EOF"
+            echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create release
@@ -235,7 +240,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          BODY="## What's Changed
+          set -euo pipefail
+
+          BODY=$(cat <<BODY_EOF
+          ## What's Changed
 
           ${CHANGELOG}
 
@@ -253,7 +261,9 @@ jobs:
           slsa-verifier verify-artifact <artifact> \\
             --provenance-path multiple.intoto.jsonl \\
             --source-uri github.com/${REPO}
-          \`\`\`"
+          \`\`\`
+          BODY_EOF
+          )
 
           if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
             echo "::warning::Release ${TAG} already exists — overwriting assets"

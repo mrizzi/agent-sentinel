@@ -105,6 +105,9 @@ jobs:
       - run: cargo audit
       - run: cargo deny check
 
+  # Gate job for branch protection / merge queue.
+  # Beta test failures are absorbed by continue-on-error on the test job,
+  # so needs.test.result is "success" even when beta legs fail.
   required:
     name: All checks passed
     runs-on: ubuntu-latest
@@ -112,22 +115,7 @@ jobs:
     needs: [fmt, clippy, msrv, test, coverage, security]
     steps:
       - name: Verify all checks passed
-        run: |
-          declare -A results=(
-            [fmt]="${{ needs.fmt.result }}"
-            [clippy]="${{ needs.clippy.result }}"
-            [msrv]="${{ needs.msrv.result }}"
-            [test]="${{ needs.test.result }}"
-            [coverage]="${{ needs.coverage.result }}"
-            [security]="${{ needs.security.result }}"
-          )
-          failed=0
-          for name in "${!results[@]}"; do
-            if [ "${results[$name]}" != "success" ]; then
-              echo "::error::${name} failed (result: ${results[$name]})"
-              failed=1
-            fi
-          done
-          if [ "$failed" -eq 1 ]; then
-            exit 1
-          fi
+        if: >-
+          contains(needs.*.result, 'failure')
+          || contains(needs.*.result, 'cancelled')
+        run: exit 1
