@@ -2,6 +2,8 @@ use clap::{Parser, Subcommand};
 use std::process::ExitCode;
 
 mod claude;
+mod process;
+mod registry;
 
 #[derive(Parser)]
 #[command(name = "agent-sentinel")]
