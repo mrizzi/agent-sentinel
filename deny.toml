@@ -2,7 +2,7 @@
 [advisories]
 vulnerability = "deny"
 unmaintained = "workspace"
-yanked = "workspace"
+yanked = "warn"
 
 # Only allow permissive licenses compatible with Apache-2.0.
 # Copyleft licenses (GPL, AGPL, etc.) are denied to avoid
