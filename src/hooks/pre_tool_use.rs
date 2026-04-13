@@ -16,7 +16,9 @@ pub fn run(security_dir: &Path) -> Result<()> {
     let session_dir = match resolve_session_dir() {
         Some(dir) => dir,
         None => {
-            eprintln!("WARN: AGENT_SENTINEL_SESSION_DIR not set. Passthrough without dereferencing.");
+            eprintln!(
+                "WARN: AGENT_SENTINEL_SESSION_DIR not set. Passthrough without dereferencing."
+            );
             return Ok(());
         }
     };
