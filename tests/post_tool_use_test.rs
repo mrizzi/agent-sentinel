@@ -122,10 +122,16 @@ fn test_post_tool_use_full_flow() {
         "PostToolUse"
     );
     let mcp_output = &response["hookSpecificOutput"]["updatedMCPToolOutput"];
-    assert!(mcp_output.is_array(), "updatedMCPToolOutput must be content blocks array");
+    assert!(
+        mcp_output.is_array(),
+        "updatedMCPToolOutput must be content blocks array"
+    );
     assert_eq!(mcp_output[0]["type"], "text");
     let text = mcp_output[0]["text"].as_str().unwrap();
-    assert!(text.contains("refs"), "content block text should contain refs");
+    assert!(
+        text.contains("refs"),
+        "content block text should contain refs"
+    );
 }
 
 #[test]
@@ -275,8 +281,14 @@ fn test_post_tool_use_with_object_tool_response() {
         "PostToolUse"
     );
     let mcp_output = &response["hookSpecificOutput"]["updatedMCPToolOutput"];
-    assert!(mcp_output.is_array(), "updatedMCPToolOutput must be content blocks array");
+    assert!(
+        mcp_output.is_array(),
+        "updatedMCPToolOutput must be content blocks array"
+    );
     assert_eq!(mcp_output[0]["type"], "text");
     let text = mcp_output[0]["text"].as_str().unwrap();
-    assert!(text.contains("refs"), "content block text should contain refs");
+    assert!(
+        text.contains("refs"),
+        "content block text should contain refs"
+    );
 }

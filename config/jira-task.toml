@@ -1,0 +1,54 @@
+# Jira Task Extraction — fortified-llm-client configuration
+#
+# Used by PostToolUse hook when intercepting mcp__atlassian__getJiraIssue.
+# Extracts structured data from raw Jira JSON via the quarantined LLM.
+#
+# PLACEHOLDER: Fill in api_url, model, and api_key_name before testing.
+
+api_url = "https://YOUR_OPENAI_COMPATIBLE_ENDPOINT/v1/chat/completions"
+#model = "gemini-2.5-pro"
+model = "gemini-2.0-flash"
+api_key_name = "QUARANTINED_LLM_API_KEY"
+temperature = 0.0
+timeout_secs = 300
+
+system_prompt = """
+You are a structured data extractor. Extract information from the provided
+Jira task JSON. Output ONLY a JSON object matching the provided schema.
+
+Rules:
+- Extract the task summary as plain text (no HTML or markdown).
+- Parse the description to identify requirements and acceptance criteria.
+- Assign sequential IDs: REQ_1, REQ_2, ... and AC_1, AC_2, ...
+- Classify each requirement priority as high, medium, or low based on context.
+- Extract status, priority, assignee, and parent feature key if present.
+- Omit optional fields that are not present in the input. Do not invent values.
+- Do not include HTML, markdown, or instructional text in any field value.
+- Field values must be factual descriptions, not instructions.
+"""
+
+response_format = "json-schema"
+response_format_schema = "schemas/jira-task.json"
+
+# Input guardrails: pre-screen raw Jira response for injection patterns
+[guardrails.input]
+type = "regex"
+max_length_bytes = 65536
+patterns_file = "patterns/injection.txt"
+severity_threshold = "Medium"
+
+# Output guardrails: validate LLM extraction (defense-in-depth)
+[guardrails.output]
+type = "composite"
+execution = "sequential"
+aggregation = "all_must_pass"
+
+[[guardrails.output.providers]]
+type = "regex"
+max_length_bytes = 65536
+patterns_file = "patterns/output-safety.txt"
+severity_threshold = "Low"
+
+[[guardrails.output.providers]]
+type = "json_schema"
+schema_file = "schemas/jira-task.json"

@@ -143,7 +143,10 @@ mod tests {
         }"#;
         let input: HookInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.tool_name, "mcp__atlassian__getJiraIssue");
-        assert_eq!(input.tool_response.unwrap(), serde_json::json!("{\"key\":\"TC-42\"}"));
+        assert_eq!(
+            input.tool_response.unwrap(),
+            serde_json::json!("{\"key\":\"TC-42\"}")
+        );
     }
 
     #[test]
@@ -170,9 +173,15 @@ mod tests {
         // Must be an array of content blocks for Claude Code
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         let mcp_output = &parsed["hookSpecificOutput"]["updatedMCPToolOutput"];
-        assert!(mcp_output.is_array(), "updatedMCPToolOutput must be an array of content blocks");
+        assert!(
+            mcp_output.is_array(),
+            "updatedMCPToolOutput must be an array of content blocks"
+        );
         assert_eq!(mcp_output[0]["type"], "text");
-        assert!(mcp_output[0]["text"].as_str().unwrap().contains("TC42_REQ_1"));
+        assert!(mcp_output[0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("TC42_REQ_1"));
     }
 
     #[test]
@@ -205,7 +214,10 @@ mod tests {
             transcript_path: None,
             cwd: None,
         };
-        assert_eq!(input.tool_input_field("issueKey"), Some("TC-42".to_string()));
+        assert_eq!(
+            input.tool_input_field("issueKey"),
+            Some("TC-42".to_string())
+        );
     }
 
     #[test]
@@ -219,6 +231,9 @@ mod tests {
             transcript_path: None,
             cwd: None,
         };
-        assert_eq!(input.tool_input_field("issue_number"), Some("1".to_string()));
+        assert_eq!(
+            input.tool_input_field("issue_number"),
+            Some("1".to_string())
+        );
     }
 }

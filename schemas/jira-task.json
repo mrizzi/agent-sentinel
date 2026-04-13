@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Jira Task Extraction",
+  "description": "Structured extraction from a Jira task for the Dual LLM pattern",
+  "type": "object",
+  "required": ["summary", "requirements", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Task title in plain text"
+    },
+    "requirements": {
+      "type": "array",
+      "description": "Requirements extracted from the task description",
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "priority"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^REQ_[0-9]+$"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "priority": {
+            "enum": ["high", "medium", "low"]
+          }
+        }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "description": "Acceptance criteria extracted from the task description",
+      "items": {
+        "type": "object",
+        "required": ["id", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^AC_[0-9]+$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "maxLength": 50,
+      "description": "Current task status"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["highest", "high", "medium", "low", "lowest", "Highest", "High", "Medium", "Low", "Lowest"],
+      "description": "Task priority"
+    },
+    "assignee": {
+      "type": "string",
+      "maxLength": 100,
+      "description": "Assigned person"
+    },
+    "parent_feature": {
+      "type": "string",
+      "pattern": "^[A-Z]+-[0-9]+$",
+      "description": "Parent feature issue key"
+    }
+  }
+}
