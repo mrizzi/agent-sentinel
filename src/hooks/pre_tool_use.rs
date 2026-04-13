@@ -1,4 +1,4 @@
-use crate::claude::{HookInput, HookOutput};
+use crate::claude::{resolve_session_dir, HookInput, HookOutput};
 use crate::process::{find_binary, run_process};
 use crate::registry::ToolRegistry;
 use anyhow::Result;
@@ -13,10 +13,10 @@ pub fn run(security_dir: &Path) -> Result<()> {
     }
 
     // Check prerequisites — graceful passthrough if not available
-    let session_dir = match std::env::var("SDLC_SESSION_DIR") {
-        Ok(dir) => dir,
-        Err(_) => {
-            eprintln!("WARN: SDLC_SESSION_DIR not set. Passthrough without dereferencing.");
+    let session_dir = match resolve_session_dir() {
+        Some(dir) => dir,
+        None => {
+            eprintln!("WARN: AGENT_SENTINEL_SESSION_DIR not set. Passthrough without dereferencing.");
             return Ok(());
         }
     };

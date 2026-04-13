@@ -1,14 +1,14 @@
-use crate::claude::HookInput;
+use crate::claude::{resolve_session_dir, HookInput};
 use anyhow::Result;
 use std::path::Path;
 
 pub fn run(_security_dir: &Path) -> Result<()> {
     let input = HookInput::from_stdin()?;
 
-    let session_dir = match std::env::var("SDLC_SESSION_DIR") {
-        Ok(dir) => dir,
-        Err(_) => {
-            eprintln!("WARN: SDLC_SESSION_DIR not set. Skipping transcript collection.");
+    let session_dir = match resolve_session_dir() {
+        Some(dir) => dir,
+        None => {
+            eprintln!("WARN: AGENT_SENTINEL_SESSION_DIR not set. Skipping transcript collection.");
             return Ok(());
         }
     };

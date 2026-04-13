@@ -57,7 +57,7 @@ fn test_pre_tool_use_deref() {
             "--security-dir",
             security_dir.path().to_str().unwrap(),
         ])
-        .env("SDLC_SESSION_DIR", session_dir.path())
+        .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
         .env("SYMREF_BIN", &mock_symref)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()

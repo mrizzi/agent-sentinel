@@ -1,5 +1,5 @@
-use crate::claude::{HookInput, HookOutput};
-use crate::process::{find_binary, run_process};
+use crate::claude::{resolve_session_dir, HookInput, HookOutput};
+use crate::process::{find_binary, run_process, run_process_in};
 use crate::registry::{derive_prefix, ToolRegistry};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
@@ -15,12 +15,13 @@ pub fn run(security_dir: &Path) -> Result<()> {
     };
 
     // Fail closed: session dir required for intercepted tools
-    let session_dir = std::env::var("SDLC_SESSION_DIR")
-        .context("SDLC_SESSION_DIR not set. Cannot quarantine without session.")?;
+    let session_dir = resolve_session_dir()
+        .context("AGENT_SENTINEL_SESSION_DIR not set. Cannot quarantine without session.")?;
 
     let tool_response = input
         .tool_response
-        .as_deref()
+        .as_ref()
+        .map(|v| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()))
         .context("Empty tool_response")?;
 
     // Resolve config path
@@ -37,7 +38,6 @@ pub fn run(security_dir: &Path) -> Result<()> {
     let prefix_field = entry.prefix_from.as_deref().unwrap_or("issueIdOrKey");
     let issue_key = input
         .tool_input_field(prefix_field)
-        .or_else(|| std::env::var("SDLC_TARGET_ISSUE").ok())
         .unwrap_or_else(|| "UNKNOWN".to_string());
     let prefix = derive_prefix(&issue_key);
 
@@ -45,8 +45,9 @@ pub fn run(security_dir: &Path) -> Result<()> {
     let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file")?;
     std::fs::write(temp_file.path(), tool_response)?;
 
-    // Invoke fortified-llm-client
-    let flc_output = run_process(
+    // Invoke fortified-llm-client from security_dir so config-relative
+    // paths (schemas/, patterns/) resolve correctly
+    let flc_output = run_process_in(
         &flc_bin,
         &[
             "--config-file",
@@ -56,6 +57,7 @@ pub fn run(security_dir: &Path) -> Result<()> {
             "--quiet",
         ],
         None,
+        Some(security_dir),
     )?;
 
     if flc_output.exit_code != 0 {

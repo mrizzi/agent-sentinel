@@ -24,7 +24,7 @@ fn test_session_end_copies_transcript() {
             "--security-dir",
             security_dir.path().to_str().unwrap(),
         ])
-        .env("SDLC_SESSION_DIR", session_dir.path())
+        .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
         .write_stdin(serde_json::to_string(&input).unwrap())
         .assert()
         .success();
@@ -51,7 +51,7 @@ fn test_session_end_graceful_without_session_dir() {
             "--security-dir",
             security_dir.path().to_str().unwrap(),
         ])
-        .env_remove("SDLC_SESSION_DIR")
+        .env_remove("AGENT_SENTINEL_SESSION_DIR")
         .write_stdin(serde_json::to_string(&input).unwrap())
         .assert()
         .success();

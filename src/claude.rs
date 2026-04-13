@@ -8,7 +8,7 @@ pub struct HookInput {
     pub hook_event_name: Option<String>,
     pub tool_name: String,
     pub tool_input: Option<serde_json::Value>,
-    pub tool_response: Option<String>,
+    pub tool_response: Option<serde_json::Value>,
     pub transcript_path: Option<String>,
     pub cwd: Option<String>,
 }
@@ -35,10 +35,18 @@ pub struct HookSpecificOutput {
 
 impl HookOutput {
     pub fn post_tool_use(updated_output: serde_json::Value) -> Self {
+        // Claude Code expects updatedMCPToolOutput as an array of MCP content
+        // blocks: [{"type": "text", "text": "..."}]
+        let content_blocks = serde_json::json!([
+            {
+                "type": "text",
+                "text": updated_output.to_string()
+            }
+        ]);
         Self {
             hook_specific_output: HookSpecificOutput {
                 hook_event_name: "PostToolUse".to_string(),
-                updated_mcp_tool_output: Some(updated_output),
+                updated_mcp_tool_output: Some(content_blocks),
                 updated_input: None,
                 additional_context: None,
             },
@@ -79,9 +87,24 @@ impl HookInput {
         self.tool_input
             .as_ref()
             .and_then(|v| v.get(field))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s.clone()),
+                serde_json::Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            })
     }
+}
+
+/// Resolve the session directory: env var first, then well-known file
+pub fn resolve_session_dir() -> Option<String> {
+    std::env::var("AGENT_SENTINEL_SESSION_DIR")
+        .ok()
+        .or_else(|| {
+            std::fs::read_to_string("/tmp/agent-sentinel-sessions/current")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 #[cfg(test)]
@@ -99,7 +122,7 @@ mod tests {
         }"#;
         let input: HookInput = serde_json::from_str(json).unwrap();
         assert_eq!(input.tool_name, "mcp__atlassian__getJiraIssue");
-        assert_eq!(input.tool_response.unwrap(), "{\"key\":\"TC-42\"}");
+        assert_eq!(input.tool_response.unwrap(), serde_json::json!("{\"key\":\"TC-42\"}"));
     }
 
     #[test]
@@ -123,6 +146,12 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("updatedMCPToolOutput"));
         assert!(json.contains("PostToolUse"));
+        // Must be an array of content blocks for Claude Code
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let mcp_output = &parsed["hookSpecificOutput"]["updatedMCPToolOutput"];
+        assert!(mcp_output.is_array(), "updatedMCPToolOutput must be an array of content blocks");
+        assert_eq!(mcp_output[0]["type"], "text");
+        assert!(mcp_output[0]["text"].as_str().unwrap().contains("TC42_REQ_1"));
     }
 
     #[test]
@@ -142,5 +171,33 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains("extraction_failed"));
         assert!(json.contains("Manual input required"));
+    }
+
+    #[test]
+    fn test_tool_input_field_string() {
+        let input = HookInput {
+            session_id: None,
+            hook_event_name: None,
+            tool_name: "test".to_string(),
+            tool_input: Some(serde_json::json!({"issueKey": "TC-42"})),
+            tool_response: None,
+            transcript_path: None,
+            cwd: None,
+        };
+        assert_eq!(input.tool_input_field("issueKey"), Some("TC-42".to_string()));
+    }
+
+    #[test]
+    fn test_tool_input_field_number() {
+        let input = HookInput {
+            session_id: None,
+            hook_event_name: None,
+            tool_name: "test".to_string(),
+            tool_input: Some(serde_json::json!({"issue_number": 1})),
+            tool_response: None,
+            transcript_path: None,
+            cwd: None,
+        };
+        assert_eq!(input.tool_input_field("issue_number"), Some("1".to_string()));
     }
 }

@@ -6,33 +6,23 @@ use std::path::Path;
 pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
     let input = HookInput::from_stdin()?;
 
-    let target_issue = std::env::var("SDLC_TARGET_ISSUE")
-        .context("SDLC_TARGET_ISSUE environment variable not set")?;
-
-    let env_file = std::env::var("CLAUDE_ENV_FILE").context("CLAUDE_ENV_FILE not available")?;
+    let env_file =
+        std::env::var("CLAUDE_ENV_FILE").context("CLAUDE_ENV_FILE not available")?;
 
     let session_id = input.session_id.unwrap_or_default();
     let cwd = input.cwd.unwrap_or_default();
     let short_id = &session_id[..session_id.len().min(8)];
 
     let timestamp = chrono_free_timestamp();
-    let session_dir = format!("/tmp/sdlc-sessions/{timestamp}-{short_id}");
+    let session_dir = format!("/tmp/agent-sentinel-sessions/{timestamp}-{short_id}");
 
     fs::create_dir_all(format!("{session_dir}/evaluations"))
         .context("Failed to create evaluations dir")?;
     fs::create_dir_all(format!("{session_dir}/output")).context("Failed to create output dir")?;
 
-    // Write scope.json
-    let scope = serde_json::json!({ "issue_key": target_issue });
-    fs::write(
-        format!("{session_dir}/scope.json"),
-        serde_json::to_string_pretty(&scope)?,
-    )?;
-
     // Write session-meta.json
     let meta = serde_json::json!({
         "session_id": session_id,
-        "issue_key": target_issue,
         "started_at": iso_timestamp(),
         "user": whoami(),
         "cwd": cwd,
@@ -42,10 +32,16 @@ pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
         serde_json::to_string_pretty(&meta)?,
     )?;
 
-    // Export session dir
+    // Export session dir via CLAUDE_ENV_FILE (available to Bash commands)
     let mut env_content = fs::read_to_string(&env_file).unwrap_or_default();
-    env_content.push_str(&format!("SDLC_SESSION_DIR={session_dir}\n"));
+    env_content.push_str(&format!("export AGENT_SENTINEL_SESSION_DIR='{session_dir}'\n"));
     fs::write(&env_file, env_content)?;
+
+    // Also write to a well-known file so other hooks (PostToolUse, PreToolUse,
+    // SessionEnd) can discover the session dir. These hooks run as separate
+    // processes and don't inherit CLAUDE_ENV_FILE variables.
+    let sentinel_state = "/tmp/agent-sentinel-sessions/current";
+    fs::write(sentinel_state, &session_dir)?;
 
     Ok(())
 }

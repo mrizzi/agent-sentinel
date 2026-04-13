@@ -32,8 +32,22 @@ pub fn find_binary(name: &str, env_var: &str) -> Result<String> {
 
 /// Run a subprocess and capture output
 pub fn run_process(binary: &str, args: &[&str], stdin_data: Option<&str>) -> Result<ProcessOutput> {
+    run_process_in(binary, args, stdin_data, None)
+}
+
+/// Run a subprocess in a specific working directory and capture output
+pub fn run_process_in(
+    binary: &str,
+    args: &[&str],
+    stdin_data: Option<&str>,
+    cwd: Option<&std::path::Path>,
+) -> Result<ProcessOutput> {
     let mut cmd = Command::new(binary);
     cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
 
     if stdin_data.is_some() {
         cmd.stdin(Stdio::piped());
@@ -100,5 +114,14 @@ mod tests {
     fn test_run_process_failure() {
         let output = run_process("false", &[], None).unwrap();
         assert_ne!(output.exit_code, 0);
+    }
+
+    #[test]
+    fn test_run_process_in_with_cwd() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("testfile.txt"), "hello from cwd").unwrap();
+        let output = run_process_in("cat", &["testfile.txt"], None, Some(tmp.path())).unwrap();
+        assert_eq!(output.exit_code, 0);
+        assert_eq!(output.stdout.trim(), "hello from cwd");
     }
 }
