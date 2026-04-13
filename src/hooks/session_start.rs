@@ -6,7 +6,8 @@ use std::path::Path;
 pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
     let input = HookInput::from_stdin()?;
 
-    let env_file = std::env::var("CLAUDE_ENV_FILE").context("CLAUDE_ENV_FILE not available")?;
+    let env_file =
+        std::env::var("CLAUDE_ENV_FILE").context("CLAUDE_ENV_FILE not available")?;
 
     let session_id = input.session_id.unwrap_or_default();
     let cwd = input.cwd.unwrap_or_default();
@@ -34,9 +35,7 @@ pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
 
     // Export session dir via CLAUDE_ENV_FILE (available to Bash commands)
     let mut env_content = fs::read_to_string(&env_file).unwrap_or_default();
-    env_content.push_str(&format!(
-        "export AGENT_SENTINEL_SESSION_DIR='{session_dir}'\n"
-    ));
+    env_content.push_str(&format!("export AGENT_SENTINEL_SESSION_DIR='{session_dir}'\n"));
     fs::write(&env_file, env_content)?;
 
     // Also write to a well-known file so other hooks (PostToolUse, PreToolUse,

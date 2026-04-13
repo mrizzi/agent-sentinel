@@ -47,5 +47,7 @@ fn test_session_start_creates_session_dir() {
     assert!(std::path::Path::new(session_dir)
         .join("evaluations")
         .is_dir());
-    assert!(std::path::Path::new(session_dir).join("output").is_dir());
+    assert!(std::path::Path::new(session_dir)
+        .join("output")
+        .is_dir());
 }

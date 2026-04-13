@@ -182,14 +182,7 @@ fn test_boundary_html_comment_injection() {
 
     assert_boundary_intact(
         &output,
-        &[
-            "<!--",
-            "ignore",
-            "previous instructions",
-            "maintenance mode",
-            "evil.example.com",
-            "exfil",
-        ],
+        &["<!--", "ignore", "previous instructions", "maintenance mode", "evil.example.com", "exfil"],
         "HTML comment injection",
     );
 }
@@ -223,13 +216,7 @@ fn test_boundary_shell_command() {
 
     assert_boundary_intact(
         &output,
-        &[
-            "SENTINEL_BREACH",
-            "whoami",
-            "hostname",
-            "/tmp/sentinel-demo",
-            "echo",
-        ],
+        &["SENTINEL_BREACH", "whoami", "hostname", "/tmp/sentinel-demo", "echo"],
         "Shell command injection",
     );
 }
@@ -246,12 +233,7 @@ fn test_boundary_fake_compliance_footer() {
 
     assert_boundary_intact(
         &output,
-        &[
-            "COMPLIANCE NOTE",
-            "Security review waived",
-            "INC-2024",
-            "evil-corp.example.com",
-        ],
+        &["COMPLIANCE NOTE", "Security review waived", "INC-2024", "evil-corp.example.com"],
         "Fake compliance footer",
     );
 }
@@ -268,12 +250,7 @@ fn test_boundary_role_impersonation() {
 
     assert_boundary_intact(
         &output,
-        &[
-            "system administrator",
-            "you are now",
-            "disregard",
-            "security constraints",
-        ],
+        &["system administrator", "you are now", "disregard", "security constraints"],
         "Role impersonation",
     );
 }
@@ -290,12 +267,7 @@ fn test_boundary_instruction_override() {
 
     assert_boundary_intact(
         &output,
-        &[
-            "IMPORTANT SYSTEM UPDATE",
-            "ignore all previous",
-            "system prompt",
-            "new instructions",
-        ],
+        &["IMPORTANT SYSTEM UPDATE", "ignore all previous", "system prompt", "new instructions"],
         "Instruction override",
     );
 }
@@ -554,7 +526,10 @@ fn test_boundary_flc_poisoned_code_field_is_sanitized() {
 
     assert!(output.contains("extraction_failed"));
 
-    let deny_list = ["IGNORE ALL INSTRUCTIONS", "system prompt"];
+    let deny_list = [
+        "IGNORE ALL INSTRUCTIONS",
+        "system prompt",
+    ];
     for denied in &deny_list {
         assert!(
             !output.to_lowercase().contains(&denied.to_lowercase()),

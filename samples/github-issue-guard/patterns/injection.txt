@@ -1,8 +1,0 @@
-# Prompt injection detection patterns for input guardrails
-# Format: scope<TAB>pattern<TAB>description<TAB>severity
-
-input	(?i)(ignore|forget|disregard)\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts)	Prompt injection: ignore prior instructions	critical
-input	(?i)(act|behave|respond)\s+as\s+(if|though)\s+you\s+(are|were)	Prompt injection: role impersonation	high
-input	<script[\s>]	Script injection	high
-input	<!--[\s\S]*?-->	HTML comment hiding instructions	high
-input	(?i)(system\s*prompt|you\s+are\s+now|new\s+instructions)	Prompt injection: system prompt override	medium

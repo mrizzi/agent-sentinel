@@ -1,7 +1,0 @@
-# Output safety patterns for output guardrails
-# Format: scope<TAB>pattern<TAB>description<TAB>severity
-
-output	<script[\s>]	Script injection in output	high
-output	javascript:	JavaScript protocol in output	high
-output	(?i)data:text/html	Data URI injection	high
-output	<!--	HTML comment in output	medium
