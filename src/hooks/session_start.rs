@@ -1,4 +1,4 @@
-use crate::claude::HookInput;
+use crate::claude::{sessions_base_dir, HookInput};
 use anyhow::Context;
 use std::fs;
 use std::path::Path;
@@ -13,8 +13,9 @@ pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
     let cwd = input.cwd.unwrap_or_default();
     let short_id = &session_id[..session_id.len().min(8)];
 
+    let base_dir = sessions_base_dir();
     let timestamp = chrono_free_timestamp();
-    let session_dir = format!("/tmp/agent-sentinel-sessions/{timestamp}-{short_id}");
+    let session_dir = format!("{base_dir}/{timestamp}-{short_id}");
 
     fs::create_dir_all(format!("{session_dir}/evaluations"))
         .context("Failed to create evaluations dir")?;
@@ -40,8 +41,9 @@ pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
     // Also write to a well-known file so other hooks (PostToolUse, PreToolUse,
     // SessionEnd) can discover the session dir. These hooks run as separate
     // processes and don't inherit CLAUDE_ENV_FILE variables.
-    let sentinel_state = "/tmp/agent-sentinel-sessions/current";
-    fs::write(sentinel_state, &session_dir)?;
+    let sentinel_state = format!("{base_dir}/current");
+    fs::write(&sentinel_state, &session_dir)
+        .with_context(|| format!("Failed to write session state file: {sentinel_state}"))?;
 
     Ok(())
 }

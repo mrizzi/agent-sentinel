@@ -95,12 +95,33 @@ impl HookInput {
     }
 }
 
+/// Per-user base directory for session state.
+/// Uses $TMPDIR (per-user on macOS, e.g. /var/folders/.../T/) or
+/// $XDG_RUNTIME_DIR (per-user on Linux, e.g. /run/user/1000/),
+/// falling back to /tmp only as last resort.
+/// SECURITY: /tmp is world-writable. $TMPDIR and $XDG_RUNTIME_DIR are
+/// per-user and permission-restricted, preventing session hijack by
+/// co-tenants on shared machines.
+pub fn sessions_base_dir() -> String {
+    let base = std::env::var("TMPDIR")
+        .or_else(|_| std::env::var("XDG_RUNTIME_DIR"))
+        .unwrap_or_else(|_| {
+            eprintln!(
+                "WARN: Neither TMPDIR nor XDG_RUNTIME_DIR is set. \
+                 Falling back to /tmp which is world-writable."
+            );
+            "/tmp".to_string()
+        });
+    format!("{}/agent-sentinel-sessions", base.trim_end_matches('/'))
+}
+
 /// Resolve the session directory: env var first, then well-known file
 pub fn resolve_session_dir() -> Option<String> {
     std::env::var("AGENT_SENTINEL_SESSION_DIR")
         .ok()
         .or_else(|| {
-            std::fs::read_to_string("/tmp/agent-sentinel-sessions/current")
+            let state_file = format!("{}/current", sessions_base_dir());
+            std::fs::read_to_string(state_file)
                 .ok()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())

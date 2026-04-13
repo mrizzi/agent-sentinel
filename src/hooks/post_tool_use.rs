@@ -61,9 +61,12 @@ pub fn run(security_dir: &Path) -> Result<()> {
     )?;
 
     if flc_output.exit_code != 0 {
-        // Extraction failed — return error via updatedMCPToolOutput
-        let detail = parse_flc_error(&flc_output.stdout);
-        let output = HookOutput::extraction_failed(&input.tool_name, &detail);
+        // Extraction failed — return safe error code only (see parse_flc_error_code)
+        if !flc_output.stderr.is_empty() {
+            eprintln!("WARN: FLC stderr: {}", flc_output.stderr.trim());
+        }
+        let error_code = parse_flc_error_code(&flc_output.stdout);
+        let output = HookOutput::extraction_failed(&input.tool_name, &error_code);
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
@@ -73,10 +76,8 @@ pub fn run(security_dir: &Path) -> Result<()> {
         .context("Failed to parse fortified-llm-client output")?;
 
     if flc_response["status"] != "success" {
-        let detail = flc_response["error"]["message"]
-            .as_str()
-            .unwrap_or("Non-success status");
-        let output = HookOutput::extraction_failed(&input.tool_name, detail);
+        let error_code = parse_flc_error_code(&flc_output.stdout);
+        let output = HookOutput::extraction_failed(&input.tool_name, &error_code);
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
@@ -114,9 +115,32 @@ pub fn run(security_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn parse_flc_error(stdout: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(stdout)
-        .ok()
-        .and_then(|v| v["error"]["message"].as_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| "Unknown error".to_string())
+/// Extract only the error CODE from FLC output — never the message.
+/// The message may echo untrusted input (e.g., schema validation errors
+/// include the invalid value), which would breach the Dual LLM boundary.
+/// The code is sanitized to alphanumeric + underscore to prevent injection
+/// via crafted error codes.
+fn parse_flc_error_code(stdout: &str) -> String {
+    let code = match serde_json::from_str::<serde_json::Value>(stdout) {
+        Ok(v) => v["error"]["code"]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                eprintln!("WARN: FLC returned JSON without error.code field");
+                "UNKNOWN_ERROR".to_string()
+            }),
+        Err(e) => {
+            eprintln!("WARN: FLC output is not valid JSON: {e}");
+            "UNKNOWN_ERROR".to_string()
+        }
+    };
+
+    // Sanitize: only allow alphanumeric and underscores to prevent
+    // injection via crafted error codes crossing the boundary
+    if code.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        code
+    } else {
+        eprintln!("WARN: FLC error code contains unexpected characters, sanitizing");
+        "INVALID_ERROR_CODE".to_string()
+    }
 }
