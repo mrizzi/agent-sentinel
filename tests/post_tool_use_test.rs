@@ -24,30 +24,6 @@ fn create_mock_flc(dir: &std::path::Path) -> String {
     script_path.to_str().unwrap().to_string()
 }
 
-/// Create a mock symref that echoes refs JSON
-fn create_mock_symref(dir: &std::path::Path) -> String {
-    let script_path = dir.join("mock-symref");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let script = r#"#!/bin/sh
-# Read stdin (extraction JSON), output refs
-cat <<'EOF'
-{
-  "refs": {
-    "$TC42_REQ_1": {"summary": "OAuth2 login flow", "ref": "$TC42_REQ_1"},
-    "$TC42_SUMMARY": {"summary": "Add OAuth2 login", "ref": "$TC42_SUMMARY"}
-  },
-  "store_path": "/tmp/test/vars.json"
-}
-EOF
-"#;
-        fs::write(&script_path, script).unwrap();
-        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
-}
-
 fn create_test_registry(security_dir: &std::path::Path) {
     let registry = serde_json::json!({
         "post_tool_use": {
@@ -64,7 +40,6 @@ fn create_test_registry(security_dir: &std::path::Path) {
     )
     .unwrap();
 
-    // Create mock config file (just needs to exist)
     fs::create_dir_all(security_dir.join("config")).unwrap();
     fs::write(security_dir.join("config/jira-task.toml"), "# mock").unwrap();
 }
@@ -78,7 +53,6 @@ fn test_post_tool_use_full_flow() {
     create_test_registry(security_dir.path());
 
     let mock_flc = create_mock_flc(tmp.path());
-    let mock_symref = create_mock_symref(tmp.path());
 
     let jira_response = fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -104,7 +78,6 @@ fn test_post_tool_use_full_flow() {
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
         .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
-        .env("SYMREF_BIN", &mock_symref)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
@@ -132,6 +105,10 @@ fn test_post_tool_use_full_flow() {
         text.contains("refs"),
         "content block text should contain refs"
     );
+
+    // Verify vars.json was created by symref library
+    let vars_path = session_dir.path().join("vars.json");
+    assert!(vars_path.exists(), "symref should have created vars.json");
 }
 
 #[test]
@@ -236,10 +213,7 @@ fn test_post_tool_use_with_object_tool_response() {
     .unwrap();
 
     let mock_flc = create_mock_flc(tmp.path());
-    let mock_symref = create_mock_symref(tmp.path());
 
-    // tool_response as a JSON object (not a string) — this is how
-    // the GitHub MCP server sends it via Claude Code
     let input = serde_json::json!({
         "session_id": "test456",
         "hook_event_name": "PostToolUse",
@@ -263,7 +237,6 @@ fn test_post_tool_use_with_object_tool_response() {
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
         .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
-        .env("SYMREF_BIN", &mock_symref)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();

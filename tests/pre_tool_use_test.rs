@@ -3,30 +3,12 @@ use predicates::prelude::*;
 use std::fs;
 use tempfile::TempDir;
 
-fn create_mock_symref_deref(dir: &std::path::Path) -> String {
-    let script_path = dir.join("mock-symref");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let script = r#"#!/bin/sh
-# Read stdin, do simple substitution for testing
-sed 's/\$TC42_REQ_1/OAuth2 login flow/g'
-"#;
-        fs::write(&script_path, script).unwrap();
-        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
-}
-
 #[test]
 fn test_pre_tool_use_deref() {
-    let tmp = TempDir::new().unwrap();
     let security_dir = TempDir::new().unwrap();
     let session_dir = TempDir::new().unwrap();
 
-    // Create vars.json so session dir looks valid
-    fs::write(session_dir.path().join("vars.json"), "{}").unwrap();
-
+    // Create tool registry
     let registry = serde_json::json!({
         "post_tool_use": {},
         "pre_tool_use": {
@@ -39,7 +21,15 @@ fn test_pre_tool_use_deref() {
     )
     .unwrap();
 
-    let mock_symref = create_mock_symref_deref(tmp.path());
+    // Create vars.json with test variables (symref is now a library — no mock needed)
+    let vars = serde_json::json!({
+        "$TC42_REQ_1": "OAuth2 login flow"
+    });
+    fs::write(
+        session_dir.path().join("vars.json"),
+        serde_json::to_string_pretty(&vars).unwrap(),
+    )
+    .unwrap();
 
     let input = serde_json::json!({
         "tool_name": "mcp__atlassian__editJiraIssue",
@@ -58,7 +48,6 @@ fn test_pre_tool_use_deref() {
             security_dir.path().to_str().unwrap(),
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
-        .env("SYMREF_BIN", &mock_symref)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
@@ -74,7 +63,9 @@ fn test_pre_tool_use_deref() {
         response["hookSpecificOutput"]["hookEventName"],
         "PreToolUse"
     );
-    assert!(response["hookSpecificOutput"]["updatedInput"].is_object());
+    let updated = &response["hookSpecificOutput"]["updatedInput"];
+    assert_eq!(updated["issueKey"], "TC-42");
+    assert_eq!(updated["description"], "Implementing OAuth2 login flow");
 }
 
 #[test]
