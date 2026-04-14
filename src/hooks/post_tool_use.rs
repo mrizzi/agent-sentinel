@@ -1,5 +1,5 @@
 use crate::claude::{resolve_session_dir, HookInput, HookOutput};
-use crate::process::{find_binary, run_process, run_process_in};
+use crate::process::{find_binary, run_process_in};
 use crate::registry::{derive_prefix, ToolRegistry};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
@@ -30,9 +30,8 @@ pub fn run(security_dir: &Path) -> Result<()> {
         bail!("Config file not found: {}", config_path.display());
     }
 
-    // Resolve binaries
+    // Resolve fortified-llm-client binary (still a subprocess)
     let flc_bin = find_binary("fortified-llm-client", "FORTIFIED_LLM_CLIENT_BIN")?;
-    let symref_bin = find_binary("symref", "SYMREF_BIN")?;
 
     // Derive prefix from tool_input
     let prefix_field = entry.prefix_from.as_deref().unwrap_or("issueIdOrKey");
@@ -82,35 +81,29 @@ pub fn run(security_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let extraction = flc_response["response"].to_string();
+    // Parse the extraction as a JSON object for symref
+    let extraction: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_value(flc_response["response"].clone())
+            .context("FLC response is not a JSON object")?;
 
-    // Invoke symref store
-    let symref_output = run_process(
-        &symref_bin,
-        &["store", "--session", &session_dir, "--prefix", &prefix],
-        Some(&extraction),
-    )?;
+    let session_path = Path::new(&session_dir);
 
-    if symref_output.exit_code != 0 {
-        // symref failed — return extraction without refs
-        eprintln!(
-            "WARN: symref store failed (exit {})",
-            symref_output.exit_code
-        );
-        let output = HookOutput::post_tool_use(flc_response["response"].clone());
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
+    // Invoke symref store as library call
+    match symref::store(session_path, &prefix, &extraction) {
+        Ok(store_output) => {
+            let output = HookOutput::post_tool_use(serde_json::json!({
+                "issue_key": issue_key,
+                "refs": store_output.refs
+            }));
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        Err(e) => {
+            // symref failed — return extraction without refs
+            eprintln!("WARN: symref store failed: {e:#}");
+            let output = HookOutput::post_tool_use(flc_response["response"].clone());
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
     }
-
-    // Parse symref output and return refs
-    let symref_response: serde_json::Value =
-        serde_json::from_str(&symref_output.stdout).context("Failed to parse symref output")?;
-
-    let output = HookOutput::post_tool_use(serde_json::json!({
-        "issue_key": issue_key,
-        "refs": symref_response["refs"]
-    }));
-    println!("{}", serde_json::to_string_pretty(&output)?);
 
     Ok(())
 }
