@@ -101,14 +101,30 @@ fn test_post_tool_use_full_flow() {
     );
     assert_eq!(mcp_output[0]["type"], "text");
     let text = mcp_output[0]["text"].as_str().unwrap();
+    let text_json: serde_json::Value = serde_json::from_str(text).unwrap();
+    let refs = text_json["refs"].as_object().expect("refs must be a JSON object");
     assert!(
-        text.contains("refs"),
-        "content block text should contain refs"
+        refs.contains_key("$TC42_REQ_1"),
+        "refs should contain $TC42_REQ_1, got: {refs:?}"
+    );
+    assert!(
+        refs.contains_key("$TC42_AC_1"),
+        "refs should contain $TC42_AC_1, got: {refs:?}"
     );
 
-    // Verify vars.json was created by symref library
+    // Verify vars.json was created with expected content
     let vars_path = session_dir.path().join("vars.json");
     assert!(vars_path.exists(), "symref should have created vars.json");
+    let vars: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&vars_path).unwrap()).unwrap();
+    assert!(
+        vars["$TC42_REQ_1"].is_object(),
+        "vars.json should contain $TC42_REQ_1"
+    );
+    assert!(
+        vars["$TC42_AC_1"].is_object(),
+        "vars.json should contain $TC42_AC_1"
+    );
 }
 
 #[test]
@@ -260,8 +276,85 @@ fn test_post_tool_use_with_object_tool_response() {
     );
     assert_eq!(mcp_output[0]["type"], "text");
     let text = mcp_output[0]["text"].as_str().unwrap();
+    let text_json: serde_json::Value = serde_json::from_str(text).unwrap();
+    let refs = text_json["refs"].as_object().expect("refs must be a JSON object");
     assert!(
-        text.contains("refs"),
-        "content block text should contain refs"
+        refs.contains_key("$1_REQ_1"),
+        "refs should contain $1_REQ_1 (issue_number=1), got: {refs:?}"
+    );
+    assert!(
+        refs.contains_key("$1_AC_1"),
+        "refs should contain $1_AC_1, got: {refs:?}"
+    );
+}
+
+#[test]
+fn test_post_tool_use_symref_store_failure_fallback() {
+    let tmp = TempDir::new().unwrap();
+    let security_dir = TempDir::new().unwrap();
+    let session_dir = TempDir::new().unwrap();
+
+    create_test_registry(security_dir.path());
+
+    let mock_flc = create_mock_flc(tmp.path());
+
+    // Make session dir read-only so symref::store() fails writing vars.json
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(session_dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+    }
+
+    let input = serde_json::json!({
+        "session_id": "test-fail",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "mcp__atlassian__getJiraIssue",
+        "tool_input": {"issueIdOrKey": "TC-42"},
+        "tool_response": "{\"key\": \"TC-42\"}"
+    });
+
+    let output = Command::cargo_bin("agent-sentinel")
+        .unwrap()
+        .args([
+            "hook",
+            "post-tool-use",
+            "--security-dir",
+            security_dir.path().to_str().unwrap(),
+        ])
+        .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
+        .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
+        .write_stdin(serde_json::to_string(&input).unwrap())
+        .output()
+        .unwrap();
+
+    // Restore permissions for cleanup
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(session_dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    assert!(
+        output.status.success(),
+        "Hook should succeed with fallback, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let response: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    // Should still return valid PostToolUse output with the FLC extraction (no refs)
+    assert_eq!(
+        response["hookSpecificOutput"]["hookEventName"],
+        "PostToolUse"
+    );
+    let mcp_output = &response["hookSpecificOutput"]["updatedMCPToolOutput"];
+    assert!(mcp_output.is_array());
+
+    // The output should contain the FLC extraction content, not refs
+    let text = mcp_output[0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("OAuth2 login"),
+        "Fallback should return FLC extraction content"
     );
 }

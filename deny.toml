@@ -15,8 +15,9 @@ allow = [
     "ISC",
 ]
 
-# Deny wildcard version requirements (e.g., dep = "*") to ensure
-# reproducible builds. Warn on duplicate versions to track bloat.
+# Warn on duplicate versions to track bloat.
+# Wildcards allowed because git deps (symref) lack a version field.
+# Revert to "deny" when symref moves to crates.io.
 [bans]
 multiple-versions = "warn"
 wildcards = "allow"
