@@ -30,11 +30,6 @@ pub fn find_binary(name: &str, env_var: &str) -> Result<String> {
     bail!("{name} not found. Set {env_var} or add to PATH")
 }
 
-/// Run a subprocess and capture output
-pub fn run_process(binary: &str, args: &[&str], stdin_data: Option<&str>) -> Result<ProcessOutput> {
-    run_process_in(binary, args, stdin_data, None)
-}
-
 /// Run a subprocess in a specific working directory and capture output
 pub fn run_process_in(
     binary: &str,
@@ -94,26 +89,6 @@ mod tests {
     fn test_find_binary_missing() {
         let result = find_binary("nonexistent_binary_xyz", "NONEXISTENT_ENV_VAR");
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_run_process_success() {
-        let output = run_process("echo", &["hello"], None).unwrap();
-        assert_eq!(output.exit_code, 0);
-        assert_eq!(output.stdout.trim(), "hello");
-    }
-
-    #[test]
-    fn test_run_process_with_stdin() {
-        let output = run_process("cat", &[], Some("test input")).unwrap();
-        assert_eq!(output.exit_code, 0);
-        assert_eq!(output.stdout.trim(), "test input");
-    }
-
-    #[test]
-    fn test_run_process_failure() {
-        let output = run_process("false", &[], None).unwrap();
-        assert_ne!(output.exit_code, 0);
     }
 
     #[test]
