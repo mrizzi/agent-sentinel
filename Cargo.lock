@@ -511,7 +511,7 @@ dependencies = [
 [[package]]
 name = "symref"
 version = "0.1.0"
-source = "git+https://github.com/mrizzi/symref.git#e953b1b14e259247c8c75be3c764fc5ad8161b44"
+source = "git+https://github.com/mrizzi/symref.git?rev=e953b1b#e953b1b14e259247c8c75be3c764fc5ad8161b44"
 dependencies = [
  "anyhow",
  "clap",
