@@ -82,18 +82,17 @@ pub fn run(security_dir: &Path) -> Result<()> {
     }
 
     // Parse the extraction as a JSON object for symref
-    let extraction: serde_json::Map<String, serde_json::Value> = match serde_json::from_value(
-        flc_response["response"].clone(),
-    ) {
-        Ok(map) => map,
-        Err(e) => {
-            // FLC response is not a JSON object — return extraction without refs
-            eprintln!("WARN: FLC response is not a JSON object: {e:#}");
-            let output = HookOutput::post_tool_use(flc_response["response"].clone());
-            println!("{}", serde_json::to_string_pretty(&output)?);
-            return Ok(());
-        }
-    };
+    let extraction: serde_json::Map<String, serde_json::Value> =
+        match serde_json::from_value(flc_response["response"].clone()) {
+            Ok(map) => map,
+            Err(e) => {
+                // FLC response is not a JSON object — return extraction without refs
+                eprintln!("WARN: FLC response is not a JSON object: {e:#}");
+                let output = HookOutput::post_tool_use(flc_response["response"].clone());
+                println!("{}", serde_json::to_string_pretty(&output)?);
+                return Ok(());
+            }
+        };
 
     let session_path = Path::new(&session_dir);
 

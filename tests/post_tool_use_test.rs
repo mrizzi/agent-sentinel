@@ -102,7 +102,9 @@ fn test_post_tool_use_full_flow() {
     assert_eq!(mcp_output[0]["type"], "text");
     let text = mcp_output[0]["text"].as_str().unwrap();
     let text_json: serde_json::Value = serde_json::from_str(text).unwrap();
-    let refs = text_json["refs"].as_object().expect("refs must be a JSON object");
+    let refs = text_json["refs"]
+        .as_object()
+        .expect("refs must be a JSON object");
     assert!(
         refs.contains_key("$TC42_REQ_1"),
         "refs should contain $TC42_REQ_1, got: {refs:?}"
@@ -277,7 +279,9 @@ fn test_post_tool_use_with_object_tool_response() {
     assert_eq!(mcp_output[0]["type"], "text");
     let text = mcp_output[0]["text"].as_str().unwrap();
     let text_json: serde_json::Value = serde_json::from_str(text).unwrap();
-    let refs = text_json["refs"].as_object().expect("refs must be a JSON object");
+    let refs = text_json["refs"]
+        .as_object()
+        .expect("refs must be a JSON object");
     assert!(
         refs.contains_key("$1_REQ_1"),
         "refs should contain $1_REQ_1 (issue_number=1), got: {refs:?}"
