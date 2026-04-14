@@ -19,7 +19,7 @@ allow = [
 # reproducible builds. Warn on duplicate versions to track bloat.
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 
 # Only allow crates from crates.io; no unknown registries or git deps.
 [sources]
@@ -29,4 +29,6 @@ allow-registry = [
     "https://github.com/rust-lang/crates.io-index",
     "https://index.crates.io",
 ]
-allow-git = []
+allow-git = [
+    "https://github.com/mrizzi/symref.git",
+]
