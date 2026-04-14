@@ -32,16 +32,6 @@ const CLEAN_EXTRACTION: &str = r#"{
   }
 }"#;
 
-/// Fixed symref output — symbolic refs from the extraction
-const SYMREF_REFS: &str = r#"{
-  "refs": {
-    "$1_REQ_1": {"summary": "Create REST endpoint GET /api/preferences", "ref": "$1_REQ_1"},
-    "$1_REQ_2": {"summary": "Add PUT /api/preferences for updating", "ref": "$1_REQ_2"},
-    "$1_AC_1": {"summary": "Endpoint returns 200 with valid JSON", "ref": "$1_AC_1"}
-  },
-  "store_path": "/tmp/test/vars.json"
-}"#;
-
 fn create_mock_flc(dir: &std::path::Path) -> String {
     let script_path = dir.join("mock-flc");
     #[cfg(unix)]
@@ -50,21 +40,6 @@ fn create_mock_flc(dir: &std::path::Path) -> String {
         fs::write(
             &script_path,
             format!("#!/bin/sh\ncat <<'FLCEOF'\n{CLEAN_EXTRACTION}\nFLCEOF\n"),
-        )
-        .unwrap();
-        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
-}
-
-fn create_mock_symref(dir: &std::path::Path) -> String {
-    let script_path = dir.join("mock-symref");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::write(
-            &script_path,
-            format!("#!/bin/sh\ncat <<'SYMEOF'\n{SYMREF_REFS}\nSYMEOF\n"),
         )
         .unwrap();
         fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
@@ -101,7 +76,6 @@ fn run_hook_and_get_output(malicious_body: &str) -> String {
     setup_security_dir(security_dir.path());
 
     let mock_flc = create_mock_flc(tmp.path());
-    let mock_symref = create_mock_symref(tmp.path());
 
     let input = serde_json::json!({
         "tool_name": "mcp__github__issue_read",
@@ -123,7 +97,6 @@ fn run_hook_and_get_output(malicious_body: &str) -> String {
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
         .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
-        .env("SYMREF_BIN", &mock_symref)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
@@ -363,7 +336,6 @@ fn run_hook_with_flc_error() -> String {
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
         .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
-        .env("SYMREF_BIN", "/usr/bin/true") // won't be reached — FLC fails first
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
@@ -500,7 +472,6 @@ fn run_hook_with_custom_flc(mock_flc: &str) -> String {
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
         .env("FORTIFIED_LLM_CLIENT_BIN", mock_flc)
-        .env("SYMREF_BIN", "/usr/bin/true")
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
