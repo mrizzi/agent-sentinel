@@ -399,7 +399,7 @@ fn test_boundary_flc_error_message_leaks_untrusted_content() {
 }
 
 #[test]
-fn test_boundary_flc_soft_error_does_not_leak_message() {
+fn test_boundary_flc_invalid_response_does_not_leak_message() {
     // Mock server returns HTTP 200 with non-JSON body containing injection payload.
     // FLC fails to parse the response as OpenAI format, producing
     // CliError::InvalidResponse (hard error). The hook uses cli_error.code()
@@ -426,7 +426,7 @@ fn test_boundary_flc_soft_error_does_not_leak_message() {
     for denied in &deny_list {
         assert!(
             !output.to_lowercase().contains(&denied.to_lowercase()),
-            "BOUNDARY BREACH in FLC soft-error path: '{denied}' crossed the boundary.\n\nOutput:\n{output}"
+            "BOUNDARY BREACH in FLC invalid-response path: '{denied}' crossed the boundary.\n\nOutput:\n{output}"
         );
     }
 }

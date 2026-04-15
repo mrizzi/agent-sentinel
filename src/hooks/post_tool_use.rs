@@ -45,10 +45,10 @@ pub fn run(security_dir: &Path) -> Result<()> {
     // resolve correctly when FLC's load_config_file() reads them.
     // SIDE EFFECT: Changes process-wide CWD. Acceptable because each hook
     // invocation is a separate short-lived process and no subsequent code
-    // depends on the original CWD.
+    // depends on the original CWD. Thread-safe here because this runs before
+    // the tokio runtime is created, and we use new_current_thread().
     std::env::set_current_dir(security_dir).context("Failed to set CWD to security_dir")?;
 
-    // Load FLC config file
     let file_config = load_config_file(&config_path)
         .map_err(|e| anyhow::anyhow!("Failed to load FLC config: {e}"))?;
 
@@ -82,10 +82,12 @@ pub fn run(security_dir: &Path) -> Result<()> {
 
     let flc_result = rt.block_on(fortified_llm_client::evaluate(config));
 
-    // Handle FLC result
     let flc_output = match flc_result {
         Err(cli_error) => {
             // Hard error — CliError.code() returns &'static str, inherently safe
+            // for stdout. The Display impl logged below may contain untrusted
+            // content (e.g. HTTP response body), but stderr does not cross the
+            // Dual LLM boundary.
             eprintln!("WARN: FLC evaluation failed: {cli_error}");
             let error_code = cli_error.code();
             let output = HookOutput::extraction_failed(&input.tool_name, error_code);
@@ -96,14 +98,15 @@ pub fn run(security_dir: &Path) -> Result<()> {
     };
 
     if flc_output.status != "success" {
-        // Soft error — sanitize the error code from CliOutput
+        // Soft error — CliOutput.error.code is a String (not &'static str like
+        // CliError::code()), so it could theoretically contain arbitrary content.
+        // Sanitize defensively to ensure only safe characters cross the boundary.
         let error_code = sanitize_error_code(flc_output.error_code());
         let output = HookOutput::extraction_failed(&input.tool_name, &error_code);
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
 
-    // Extract FLC response
     let flc_response = match flc_output.response {
         Some(resp) => resp,
         None => {
@@ -151,10 +154,11 @@ pub fn run(security_dir: &Path) -> Result<()> {
 
 /// Sanitize an error code from FLC CliOutput for safe inclusion in hook output.
 ///
-/// The code comes from `CliOutput.error_code()` which returns `Option<&str>`.
-/// Even though FLC is trusted, we sanitize defensively: only alphanumeric +
-/// underscore characters are allowed to prevent any injection if a crafted
-/// error code somehow crosses the boundary.
+/// The code comes from `CliOutput.error_code()` which returns `Option<&str>`
+/// borrowed from the underlying `ErrorInfo.code: String`. Unlike `CliError::code()`
+/// which returns `&'static str` (compile-time constant, inherently safe), this is
+/// a runtime String that could theoretically contain arbitrary content. We sanitize
+/// defensively: only alphanumeric + underscore characters are allowed.
 fn sanitize_error_code(code: Option<&str>) -> String {
     let code = match code {
         Some(c) => c.to_string(),
