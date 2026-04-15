@@ -1,7 +1,8 @@
 use crate::claude::{resolve_session_dir, HookInput, HookOutput};
-use crate::process::{find_binary, run_process_in};
 use crate::registry::{derive_prefix, ToolRegistry};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
+use fortified_llm_client::config_builder::ConfigBuilder;
+use fortified_llm_client::load_config_file;
 use std::path::Path;
 
 pub fn run(security_dir: &Path) -> Result<()> {
@@ -27,11 +28,11 @@ pub fn run(security_dir: &Path) -> Result<()> {
     // Resolve config path
     let config_path = security_dir.join(&entry.config);
     if !config_path.exists() {
-        bail!("Config file not found: {}", config_path.display());
+        return Err(anyhow::anyhow!(
+            "Config file not found: {}",
+            config_path.display()
+        ));
     }
-
-    // Resolve fortified-llm-client binary (still a subprocess)
-    let flc_bin = find_binary("fortified-llm-client", "FORTIFIED_LLM_CLIENT_BIN")?;
 
     // Derive prefix from tool_input
     let prefix_field = entry.prefix_from.as_deref().unwrap_or("issueIdOrKey");
@@ -40,55 +41,83 @@ pub fn run(security_dir: &Path) -> Result<()> {
         .unwrap_or_else(|| "UNKNOWN".to_string());
     let prefix = derive_prefix(&issue_key);
 
-    // Write tool_response to temp file (avoid ARG_MAX)
-    let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file")?;
-    std::fs::write(temp_file.path(), tool_response)?;
+    // Set CWD to security_dir so config-relative paths (schemas/, patterns/)
+    // resolve correctly when FLC loads them
+    std::env::set_current_dir(security_dir)
+        .context("Failed to set CWD to security_dir")?;
 
-    // Invoke fortified-llm-client from security_dir so config-relative
-    // paths (schemas/, patterns/) resolve correctly
-    let flc_output = run_process_in(
-        &flc_bin,
-        &[
-            "--config-file",
-            config_path.to_str().unwrap(),
-            "--user-file",
-            temp_file.path().to_str().unwrap(),
-            "--quiet",
-        ],
-        None,
-        Some(security_dir),
-    )?;
+    // Load FLC config file
+    let file_config = load_config_file(&config_path)
+        .map_err(|e| anyhow::anyhow!("Failed to load FLC config: {e}"))?;
 
-    if flc_output.exit_code != 0 {
-        // Extraction failed — return safe error code only (see parse_flc_error_code)
-        if !flc_output.stderr.is_empty() {
-            eprintln!("WARN: FLC stderr: {}", flc_output.stderr.trim());
+    // Build evaluation config
+    let mut builder = ConfigBuilder::new()
+        .user_prompt(tool_response)
+        .merge_file_config(&file_config);
+
+    // Resolve API key from environment variable if specified in config
+    if let Some(ref key_name) = file_config.api_key_name {
+        match std::env::var(key_name) {
+            Ok(key_value) => {
+                builder = builder.api_key(key_value);
+            }
+            Err(_) => {
+                eprintln!("WARN: API key env var '{key_name}' not set");
+            }
         }
-        let error_code = parse_flc_error_code(&flc_output.stdout);
+    }
+
+    let config = builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build FLC config: {e}"))?;
+
+    // Create tokio runtime and call FLC evaluate
+    let rt = tokio::runtime::Runtime::new()
+        .context("Failed to create tokio runtime")?;
+
+    let flc_result = rt.block_on(fortified_llm_client::evaluate(config));
+
+    // Handle FLC result
+    let flc_output = match flc_result {
+        Err(cli_error) => {
+            // Hard error — CliError.code() returns &'static str, inherently safe
+            eprintln!("WARN: FLC evaluation failed: {cli_error}");
+            let error_code = cli_error.code();
+            let output = HookOutput::extraction_failed(&input.tool_name, error_code);
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            return Ok(());
+        }
+        Ok(output) => output,
+    };
+
+    if flc_output.status != "success" {
+        // Soft error — sanitize the error code from CliOutput
+        let error_code = sanitize_error_code(flc_output.error_code());
         let output = HookOutput::extraction_failed(&input.tool_name, &error_code);
         println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
 
-    // Parse fortified-llm-client response
-    let flc_response: serde_json::Value = serde_json::from_str(&flc_output.stdout)
-        .context("Failed to parse fortified-llm-client output")?;
-
-    if flc_response["status"] != "success" {
-        let error_code = parse_flc_error_code(&flc_output.stdout);
-        let output = HookOutput::extraction_failed(&input.tool_name, &error_code);
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
-    }
+    // Extract FLC response
+    let flc_response = match flc_output.response {
+        Some(resp) => resp,
+        None => {
+            eprintln!("WARN: FLC returned success but no response");
+            let output =
+                HookOutput::extraction_failed(&input.tool_name, "MISSING_RESPONSE");
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            return Ok(());
+        }
+    };
 
     // Parse the extraction as a JSON object for symref
     let extraction: serde_json::Map<String, serde_json::Value> =
-        match serde_json::from_value(flc_response["response"].clone()) {
+        match serde_json::from_value(flc_response.clone()) {
             Ok(map) => map,
             Err(e) => {
                 // FLC response is not a JSON object — return extraction without refs
                 eprintln!("WARN: FLC response is not a JSON object: {e:#}");
-                let output = HookOutput::post_tool_use(flc_response["response"].clone());
+                let output = HookOutput::post_tool_use(flc_response);
                 println!("{}", serde_json::to_string_pretty(&output)?);
                 return Ok(());
             }
@@ -108,7 +137,7 @@ pub fn run(security_dir: &Path) -> Result<()> {
         Err(e) => {
             // symref failed — return extraction without refs
             eprintln!("WARN: symref store failed: {e:#}");
-            let output = HookOutput::post_tool_use(flc_response["response"].clone());
+            let output = HookOutput::post_tool_use(flc_response);
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
     }
@@ -116,23 +145,18 @@ pub fn run(security_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Extract only the error CODE from FLC output — never the message.
-/// The message may echo untrusted input (e.g., schema validation errors
-/// include the invalid value), which would breach the Dual LLM boundary.
-/// The code is sanitized to alphanumeric + underscore to prevent injection
-/// via crafted error codes.
-fn parse_flc_error_code(stdout: &str) -> String {
-    let code = match serde_json::from_str::<serde_json::Value>(stdout) {
-        Ok(v) => v["error"]["code"]
-            .as_str()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                eprintln!("WARN: FLC returned JSON without error.code field");
-                "UNKNOWN_ERROR".to_string()
-            }),
-        Err(e) => {
-            eprintln!("WARN: FLC output is not valid JSON: {e}");
-            "UNKNOWN_ERROR".to_string()
+/// Sanitize an error code from FLC CliOutput for safe inclusion in hook output.
+///
+/// The code comes from `CliOutput.error_code()` which returns `Option<&str>`.
+/// Even though FLC is trusted, we sanitize defensively: only alphanumeric +
+/// underscore characters are allowed to prevent any injection if a crafted
+/// error code somehow crosses the boundary.
+fn sanitize_error_code(code: Option<&str>) -> String {
+    let code = match code {
+        Some(c) => c.to_string(),
+        None => {
+            eprintln!("WARN: FLC returned error status without error code");
+            return "UNKNOWN_ERROR".to_string();
         }
     };
 
