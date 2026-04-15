@@ -2,6 +2,7 @@ use crate::claude::{sessions_base_dir, HookInput};
 use anyhow::Context;
 use std::fs;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
     let input = HookInput::from_stdin()?;
@@ -50,19 +51,89 @@ pub fn run(_security_dir: &Path) -> anyhow::Result<()> {
 }
 
 fn chrono_free_timestamp() -> String {
-    std::process::Command::new("date")
-        .args(["+%Y%m%d-%H%M%S"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "00000000-000000".to_string())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| {
+            let total_seconds = d.as_secs();
+            let days = total_seconds / 86400;
+            let seconds_today = total_seconds % 86400;
+            let hours = seconds_today / 3600;
+            let minutes = (seconds_today % 3600) / 60;
+            let seconds = seconds_today % 60;
+
+            let (year, month, day) = days_to_ymd(days);
+            format!(
+                "{:04}{:02}{:02}-{:02}{:02}{:02}",
+                year, month, day, hours, minutes, seconds
+            )
+        })
+        .unwrap_or_else(|| "00000000-000000".to_string())
 }
 
 fn iso_timestamp() -> String {
-    std::process::Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|d| {
+            let total_seconds = d.as_secs();
+            let days = total_seconds / 86400;
+            let seconds_today = total_seconds % 86400;
+            let hours = seconds_today / 3600;
+            let minutes = (seconds_today % 3600) / 60;
+            let seconds = seconds_today % 60;
+
+            let (year, month, day) = days_to_ymd(days);
+            format!(
+                "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+                year, month, day, hours, minutes, seconds
+            )
+        })
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
+}
+
+/// Convert days since Unix epoch to (year, month, day).
+/// Correct for dates from 1970 to 2099.
+fn days_to_ymd(days_since_epoch: u64) -> (u32, u32, u32) {
+    // Days in each month for non-leap and leap years
+    const DAYS_IN_MONTH: [[u32; 12]; 2] = [
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31], // non-leap
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31], // leap
+    ];
+
+    let mut days = days_since_epoch as u32;
+    let mut year = 1970;
+
+    // Iterate through years
+    loop {
+        let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+        let days_in_year = if is_leap { 366 } else { 365 };
+
+        if days >= days_in_year {
+            days -= days_in_year;
+            year += 1;
+        } else {
+            break;
+        }
+    }
+
+    // Find month and day
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let month_days = &DAYS_IN_MONTH[if is_leap { 1 } else { 0 }];
+
+    let mut month = 1;
+    for &days_in_month in month_days {
+        if days >= days_in_month {
+            days -= days_in_month;
+            month += 1;
+        } else {
+            break;
+        }
+    }
+
+    let day = days + 1; // days is 0-indexed, calendar days are 1-indexed
+
+    (year, month, day)
 }
 
 fn whoami() -> String {
