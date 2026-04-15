@@ -598,7 +598,7 @@ dependencies = [
 [[package]]
 name = "fortified-llm-client"
 version = "0.1.0"
-source = "git+https://github.com/mrizzi/fortified-llm-client.git#a6da4cc55e9ef00b8c4f118d38d4305a7449be07"
+source = "git+https://github.com/mrizzi/fortified-llm-client.git?rev=a6da4cc#a6da4cc55e9ef00b8c4f118d38d4305a7449be07"
 dependencies = [
  "async-trait",
  "chrono",

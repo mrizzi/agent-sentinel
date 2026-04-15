@@ -9,7 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-fortified-llm-client = { git = "https://github.com/mrizzi/fortified-llm-client.git" }
+fortified-llm-client = { git = "https://github.com/mrizzi/fortified-llm-client.git", rev = "a6da4cc" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 symref = { git = "https://github.com/mrizzi/symref.git", rev = "e953b1b" }
