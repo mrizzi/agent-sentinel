@@ -2,12 +2,13 @@
 name = "agent-sentinel"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.86"
 description = "Security hook engine for the Dual LLM pattern in Claude Code plugins"
 license = "Apache-2.0"
 
 [dependencies]
 anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 fortified-llm-client = { git = "https://github.com/mrizzi/fortified-llm-client.git", rev = "a6da4cc" }
 serde = { version = "1", features = ["derive"] }
