@@ -113,7 +113,7 @@ api_key_name = "OPENAI_API_KEY"
 - `api_key_name` is the name of an environment variable containing the API key (resolved at runtime)
 - `system_prompt` should instruct the LLM to extract specific fields into a JSON structure
 - `response_format = "json-object"` ensures the extraction is valid JSON
-- See [fortified-llm-client](https://github.com/mrizzi/fortified-llm-client) for the full config reference
+- See the [fortified-llm-client configuration guide](https://mrizzi.github.io/fortified-llm-client/user-guide/configuration.html) for the full config reference
 
 ### Configure Claude Code hooks
 
