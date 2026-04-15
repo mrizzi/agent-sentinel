@@ -3,7 +3,6 @@ use std::process::ExitCode;
 
 mod claude;
 mod hooks;
-mod process;
 mod registry;
 
 #[derive(Parser)]
