@@ -4,8 +4,8 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-/// The extraction JSON that FLC returns (same content as the old flc-success.json fixture).
-/// This is embedded in the mock OpenAI chat completion response's `content` field.
+/// The extraction JSON that FLC returns, embedded in the mock OpenAI chat completion
+/// response's `content` field.
 const EXTRACTION_JSON: &str = r#"{"summary":"Add OAuth2 login","requirements":[{"id":"REQ_1","text":"OAuth2 login flow","priority":"high"}],"acceptance_criteria":[{"id":"AC_1","description":"Users can authenticate via OAuth2"}],"status":"To Do"}"#;
 
 /// Build a canned OpenAI-compatible chat completion response body.

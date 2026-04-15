@@ -42,7 +42,10 @@ pub fn run(security_dir: &Path) -> Result<()> {
     let prefix = derive_prefix(&issue_key);
 
     // Set CWD to security_dir so config-relative paths (schemas/, patterns/)
-    // resolve correctly when FLC loads them
+    // resolve correctly when FLC's load_config_file() reads them.
+    // SIDE EFFECT: Changes process-wide CWD. Acceptable because each hook
+    // invocation is a separate short-lived process and no subsequent code
+    // depends on the original CWD.
     std::env::set_current_dir(security_dir).context("Failed to set CWD to security_dir")?;
 
     // Load FLC config file
@@ -70,8 +73,12 @@ pub fn run(security_dir: &Path) -> Result<()> {
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build FLC config: {e}"))?;
 
-    // Create tokio runtime and call FLC evaluate
-    let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+    // Create a single-threaded tokio runtime for the async evaluate() call.
+    // Current-thread is sufficient — we only need one block_on() call.
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("Failed to create tokio runtime")?;
 
     let flc_result = rt.block_on(fortified_llm_client::evaluate(config));
 
