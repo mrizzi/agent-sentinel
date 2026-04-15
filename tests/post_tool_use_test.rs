@@ -1,34 +1,63 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 use std::fs;
+use std::path::Path;
 use tempfile::TempDir;
 
-/// Create a mock fortified-llm-client that returns a fixed JSON response
-fn create_mock_flc(dir: &std::path::Path) -> String {
-    let fixture = fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/flc-success.json"),
-    )
-    .unwrap();
+/// The extraction JSON that FLC returns (same content as the old flc-success.json fixture).
+/// This is embedded in the mock OpenAI chat completion response's `content` field.
+const EXTRACTION_JSON: &str = r#"{"summary":"Add OAuth2 login","requirements":[{"id":"REQ_1","text":"OAuth2 login flow","priority":"high"}],"acceptance_criteria":[{"id":"AC_1","description":"Users can authenticate via OAuth2"}],"status":"To Do"}"#;
 
-    let script_path = dir.join("mock-flc");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::write(
-            &script_path,
-            format!("#!/bin/sh\ncat <<'EOF'\n{fixture}\nEOF\n"),
-        )
-        .unwrap();
-        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
+/// Build a canned OpenAI-compatible chat completion response body.
+fn openai_chat_completion_body() -> String {
+    serde_json::json!({
+        "id": "test-response",
+        "object": "chat.completion",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": EXTRACTION_JSON
+            },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150
+        }
+    })
+    .to_string()
 }
 
-fn create_test_registry(security_dir: &std::path::Path) {
+/// Create a valid FLC config TOML file that points to the given mock server URL.
+///
+/// The `api_url` includes the `/v1/chat/completions` path because:
+///   - The OpenAI provider posts directly to `api_url` as-is
+///   - Provider auto-detection keys off `/v1/chat/completions` in the URL
+fn create_test_config(config_dir: &Path, mock_server_url: &str) -> std::path::PathBuf {
+    let config = format!(
+        r#"api_url = "{url}/v1/chat/completions"
+model = "test-model"
+system_prompt = "Extract structured data. Return valid JSON."
+temperature = 0.0
+max_tokens = 2000
+timeout_secs = 10
+response_format = "json-object"
+api_key = "test-key"
+"#,
+        url = mock_server_url
+    );
+    let path = config_dir.join("jira-task.toml");
+    fs::write(&path, config).unwrap();
+    path
+}
+
+fn create_test_registry(security_dir: &Path, config_filename: &str) {
     let registry = serde_json::json!({
         "post_tool_use": {
             "mcp__atlassian__getJiraIssue": {
-                "config": "config/jira-task.toml",
+                "config": format!("config/{config_filename}"),
                 "prefix_from": "issueIdOrKey"
             }
         },
@@ -41,22 +70,28 @@ fn create_test_registry(security_dir: &std::path::Path) {
     .unwrap();
 
     fs::create_dir_all(security_dir.join("config")).unwrap();
-    fs::write(security_dir.join("config/jira-task.toml"), "# mock").unwrap();
 }
 
 #[test]
 fn test_post_tool_use_full_flow() {
-    let tmp = TempDir::new().unwrap();
     let security_dir = TempDir::new().unwrap();
     let session_dir = TempDir::new().unwrap();
 
-    create_test_registry(security_dir.path());
+    // Set up mockito server
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/v1/chat/completions")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(openai_chat_completion_body())
+        .create();
 
-    let mock_flc = create_mock_flc(tmp.path());
+    // Create registry first (creates config/ dir), then write FLC config
+    create_test_registry(security_dir.path(), "jira-task.toml");
+    create_test_config(&security_dir.path().join("config"), &server.url());
 
     let jira_response = fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/jira-task-response.json"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jira-task-response.json"),
     )
     .unwrap();
 
@@ -77,7 +112,6 @@ fn test_post_tool_use_full_flow() {
             security_dir.path().to_str().unwrap(),
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
-        .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
@@ -127,6 +161,8 @@ fn test_post_tool_use_full_flow() {
         vars["$TC42_AC_1"].is_object(),
         "vars.json should contain $TC42_AC_1"
     );
+
+    mock.assert();
 }
 
 #[test]
@@ -205,9 +241,33 @@ fn test_post_tool_use_fails_closed_without_session() {
 
 #[test]
 fn test_post_tool_use_with_object_tool_response() {
-    let tmp = TempDir::new().unwrap();
     let security_dir = TempDir::new().unwrap();
     let session_dir = TempDir::new().unwrap();
+
+    // Set up mockito server
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/v1/chat/completions")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(openai_chat_completion_body())
+        .create();
+
+    // Create FLC config pointing to mock server
+    let config = format!(
+        r#"api_url = "{url}/v1/chat/completions"
+model = "test-model"
+system_prompt = "Extract structured data. Return valid JSON."
+temperature = 0.0
+max_tokens = 2000
+timeout_secs = 10
+response_format = "json-object"
+api_key = "test-key"
+"#,
+        url = server.url()
+    );
+    fs::create_dir_all(security_dir.path().join("config")).unwrap();
+    fs::write(security_dir.path().join("config/github-issue.toml"), config).unwrap();
 
     let registry = serde_json::json!({
         "post_tool_use": {
@@ -223,14 +283,6 @@ fn test_post_tool_use_with_object_tool_response() {
         serde_json::to_string_pretty(&registry).unwrap(),
     )
     .unwrap();
-    fs::create_dir_all(security_dir.path().join("config")).unwrap();
-    fs::write(
-        security_dir.path().join("config/github-issue.toml"),
-        "# mock",
-    )
-    .unwrap();
-
-    let mock_flc = create_mock_flc(tmp.path());
 
     let input = serde_json::json!({
         "session_id": "test456",
@@ -254,7 +306,6 @@ fn test_post_tool_use_with_object_tool_response() {
             security_dir.path().to_str().unwrap(),
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
-        .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
@@ -290,17 +341,27 @@ fn test_post_tool_use_with_object_tool_response() {
         refs.contains_key("$1_AC_1"),
         "refs should contain $1_AC_1, got: {refs:?}"
     );
+
+    mock.assert();
 }
 
 #[test]
 fn test_post_tool_use_symref_store_failure_fallback() {
-    let tmp = TempDir::new().unwrap();
     let security_dir = TempDir::new().unwrap();
     let session_dir = TempDir::new().unwrap();
 
-    create_test_registry(security_dir.path());
+    // Set up mockito server
+    let mut server = mockito::Server::new();
+    let mock = server
+        .mock("POST", "/v1/chat/completions")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(openai_chat_completion_body())
+        .create();
 
-    let mock_flc = create_mock_flc(tmp.path());
+    // Create registry first (creates config/ dir), then write FLC config
+    create_test_registry(security_dir.path(), "jira-task.toml");
+    create_test_config(&security_dir.path().join("config"), &server.url());
 
     // Make session dir read-only so symref::store() fails writing vars.json
     #[cfg(unix)]
@@ -326,7 +387,6 @@ fn test_post_tool_use_symref_store_failure_fallback() {
             security_dir.path().to_str().unwrap(),
         ])
         .env("AGENT_SENTINEL_SESSION_DIR", session_dir.path())
-        .env("FORTIFIED_LLM_CLIENT_BIN", &mock_flc)
         .write_stdin(serde_json::to_string(&input).unwrap())
         .output()
         .unwrap();
@@ -361,4 +421,6 @@ fn test_post_tool_use_symref_store_failure_fallback() {
         text.contains("OAuth2 login"),
         "Fallback should return FLC extraction content"
     );
+
+    mock.assert();
 }

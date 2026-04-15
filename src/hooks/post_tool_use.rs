@@ -43,8 +43,7 @@ pub fn run(security_dir: &Path) -> Result<()> {
 
     // Set CWD to security_dir so config-relative paths (schemas/, patterns/)
     // resolve correctly when FLC loads them
-    std::env::set_current_dir(security_dir)
-        .context("Failed to set CWD to security_dir")?;
+    std::env::set_current_dir(security_dir).context("Failed to set CWD to security_dir")?;
 
     // Load FLC config file
     let file_config = load_config_file(&config_path)
@@ -72,8 +71,7 @@ pub fn run(security_dir: &Path) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to build FLC config: {e}"))?;
 
     // Create tokio runtime and call FLC evaluate
-    let rt = tokio::runtime::Runtime::new()
-        .context("Failed to create tokio runtime")?;
+    let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
 
     let flc_result = rt.block_on(fortified_llm_client::evaluate(config));
 
@@ -103,8 +101,7 @@ pub fn run(security_dir: &Path) -> Result<()> {
         Some(resp) => resp,
         None => {
             eprintln!("WARN: FLC returned success but no response");
-            let output =
-                HookOutput::extraction_failed(&input.tool_name, "MISSING_RESPONSE");
+            let output = HookOutput::extraction_failed(&input.tool_name, "MISSING_RESPONSE");
             println!("{}", serde_json::to_string_pretty(&output)?);
             return Ok(());
         }
