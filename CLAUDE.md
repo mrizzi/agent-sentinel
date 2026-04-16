@@ -2,11 +2,11 @@
 
 ## Repository Registry
 
-| Repository | Role | Serena Instance | Path |
-|---|---|---|---|
-| agent-sentinel | Rust security hook engine | serena-agent-sentinel | /Users/mrizzi/git/cloned/agent-sentinel |
-| fortified-llm-client | Rust LLM client with guardrails | serena-fortified-llm-client | /Users/mrizzi/git/cloned/fortified-llm-client |
-| symref | Rust symbolic variable storage | serena-symref | /Users/mrizzi/git/cloned/symref |
+| Repository | Role | Serena Instance |
+|---|---|---|
+| agent-sentinel | Rust security hook engine | serena-agent-sentinel |
+| fortified-llm-client | Rust LLM client with guardrails | serena-fortified-llm-client |
+| symref | Rust symbolic variable storage | serena-symref |
 
 ## Jira Configuration
 
