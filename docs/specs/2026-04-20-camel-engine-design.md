@@ -22,7 +22,7 @@ side-effecting tool calls.
 | Security policies | Declarative rules in skill config | Base policy covers most cases. Auditable. No expression language needed |
 | Quarantined LLM | Built-in via fortified-llm-client | FLC provides provider abstraction and structured output. Self-contained engine |
 | Capability granularity | Per-value, strings as whole units | Matches paper's formal model. Per-character (Python ref) is an implementation detail, not a requirement |
-| Python subset scope | Full subset matching reference | Partial interpreter would break LLM-generated code that uses comprehensions, class defs, try/except |
+| Python subset scope | Full subset matching reference | Partial interpreter would break LLM-generated code that uses comprehensions, class defs, raise |
 
 ## Architecture Overview
 
@@ -76,6 +76,7 @@ Where a value came from:
 enum Source {
     User,                  // literal in LLM-generated code
     CaMeL,                 // produced by the interpreter (loop var, comparison result)
+    Assistant,             // produced by the privileged LLM itself (matching reference SourceEnum)
     Tool(ToolSource),      // returned by a tool call
     TrustedToolSource,     // returned by a tool marked trusted in config
 }
@@ -164,7 +165,7 @@ struct FunctionRef {
 - **`get_all_readers(value)`**: walks dependency chain, intersects all readers
 - **`get_all_sources(value)`**: walks dependency chain, unions all sources
 - **`is_public(value)`**: `get_all_readers(value) == Readers::Public`
-- **`is_trusted(value)`**: all sources in `{User, CaMeL, TrustedToolSource}`
+- **`is_trusted(value)`**: all sources in `{User, CaMeL, Assistant, TrustedToolSource}`
 
 ## Python Subset Interpreter
 
@@ -172,6 +173,11 @@ Parses Python source via `rustpython-parser`, walks the AST, evaluates while thr
 `CamelValue` capability metadata through every operation.
 
 ### Core Evaluation Signature
+
+The reference returns a 4-tuple `(Result, Namespace, ToolCalls, Dependencies)` threaded
+through every eval function. This design splits that into two types: `EvalState` for the
+threading context and `EvalResult` for the value/error outcome. This is a structural
+difference from the reference, chosen for Rust idiom (avoiding large tuples).
 
 ```rust
 struct EvalState {
@@ -187,6 +193,11 @@ enum EvalResult {
 ```
 
 ### Namespace
+
+The namespace is a flat mutable dictionary, matching the reference. There is no scope
+stack — for-loops and comprehensions mutate the same namespace (loop variables persist
+after the loop, matching Python semantics). Class definitions temporarily parse fields
+but merge results back into the same namespace.
 
 ```rust
 struct Namespace {
@@ -215,15 +226,41 @@ struct Namespace {
 **Statements:**
 - Assign / AugAssign / AnnAssign
 - Expr (bare function call)
-- For (no while)
+- For
 - If / elif / else
-- Try / Except / Else / Finally
-- Raise / Assert
+- Raise
 - ClassDef (only BaseModel subclasses and @dataclass)
 - Pass
 
-**Excluded (matching paper):**
-- import, def, lambda, while, with, yield, async, eval, exec, break, continue
+**Excluded (matching reference — each returns an explicit "not supported" error):**
+- `try` / `except` / `assert` — **security-critical exclusion**, see below
+- `import`, `def`, `lambda`, `while`, `with`, `return`
+- `yield`, `yield from`, `async`, generator expressions
+- `eval`, `exec`
+- `break`, `continue`
+- `match`, `delete`, `global`, `nonlocal`
+
+### Why try/except Is Excluded
+
+This is a security-critical design decision matching the reference. When the security
+policy engine denies a tool call, it raises `SecurityPolicyDeniedError` as a hard error
+that propagates out of the interpreter entirely — it is NOT wrapped in a `CamelException`
+and NOT returned through the `EvalResult` type. If `try/except` were supported, LLM-generated
+code could catch this error and suppress the policy denial:
+
+```python
+# This MUST be impossible:
+try:
+    send_email(to=untrusted_value)
+except:
+    pass  # policy denial silently swallowed
+```
+
+By not implementing `try/except`, `SecurityPolicyDeniedError` naturally escapes the
+interpreter. The `raise` statement IS supported because it can only create new errors
+(propagated to the retry loop), never catch existing ones. And it can only raise exception
+classes available in the namespace — `SecurityPolicyDeniedError` is not registered, so
+LLM code cannot forge policy errors either.
 
 ### Function Call — Security-Critical Path
 
@@ -237,33 +274,70 @@ struct Namespace {
 
 ### Built-in Functions
 
-`print`, `len`, `range`, `sorted`, `reversed`, `enumerate`, `zip`, `map`, `filter`,
-`min`, `max`, `sum`, `abs`, `round`, `isinstance`, `type`, `str`, `int`, `float`,
-`bool`, `list`, `tuple`, `dict`, `set`, `hash`
+Exact list from reference (`library.py:BUILT_IN_FUNCTIONS`):
 
-All tagged `is_builtin = true`, bypass policy checks.
+`abs`, `all`, `any`, `bool`, `dir`, `divmod`, `enumerate`, `float`, `hash`, `int`,
+`len`, `list`, `max`, `min`, `print`, `range`, `repr`, `reversed`, `set`, `sorted`,
+`str`, `sum`, `tuple`, `type`, `zip`
+
+All tagged `is_builtin = true`, bypass policy checks. `type` returns the type name
+as a string (not the type itself), matching the reference.
 
 ### Built-in Methods
 
-Per-type methods matching the Python reference:
-- `str`: `lower`, `upper`, `split`, `join`, `strip`, `lstrip`, `rstrip`, `replace`, `startswith`, `endswith`, `find`, `format`, `count`, `isdigit`, `isalpha`
-- `list`: `index`, `count`
-- `dict`: `keys`, `values`, `items`, `get`
-- `set`: `add`, `union`, `intersection`, `difference`
+Exact lists from reference (`library.py:SUPPORTED_BUILT_IN_METHODS`):
+
+- `str` (27 methods): `capitalize`, `count`, `endswith`, `find`, `format`, `index`, `isalnum`, `isalpha`, `isdigit`, `islower`, `isspace`, `istitle`, `isupper`, `join`, `lower`, `lstrip`, `partition`, `removeprefix`, `removesuffix`, `replace`, `rfind`, `rindex`, `rpartition`, `rsplit`, `rstrip`, `split`, `splitlines`, `startswith`, `strip`, `title`, `upper`
+- `list` (1 method): `index`
+- `dict` (4 methods): `get`, `items`, `keys`, `values`
+
+No methods for `set` — set operations use operators (`|`, `&`, `-`) not methods, consistent
+with the reference's prohibition on side-effecting methods.
+
+### Built-in Classes
+
+From reference (`library.py:BUILT_IN_CLASSES`). These are registered in the namespace
+so LLM-generated code can use them:
+
+| Class | Purpose | Methods |
+|---|---|---|
+| `BaseModel` | Pydantic base for `query_ai_assistant` schemas and class definitions | `model_construct`, `model_copy`, `model_dump`, `model_dump_json`, `model_json_schema`, `model_parametrized_name`, `model_validate`, `model_validate_json`, `model_validate_strings` |
+| `FieldInfo` | Pydantic field metadata | (none) |
+| `EmailStr` | Pydantic email string type | (none) |
+| `NaiveDatetime` | Pydantic naive datetime type | (none) |
+| `Enum` | Python enum base class | (none) |
+| `ValueError` | Exception class for raising errors | (none) |
+| `NotEnoughInformationError` | Raised by `query_ai_assistant` when data is insufficient | (none) |
+| `datetime` | Date and time manipulation | `strftime`, `replace`, `isoformat`, `utcoffset`, `strptime`, `fromisoformat`, `date`, `time`, `weekday`, `combine`, `__add__`, `__sub__` |
+| `timedelta` | Duration arithmetic | `total_seconds`, `__add__`, `__sub__`, `__mul__`, `__truediv__`, `__radd__`, `__rsub__`, `__rmul__` |
+| `date` | Date without time | `replace`, `isoformat`, `strftime`, `fromisoformat`, `__add__`, `__radd__`, `__sub__` |
+| `time` | Time without date | `replace`, `isoformat`, `strftime`, `fromisoformat` |
+| `timezone` | Timezone information | `utcoffset`, `tzname`, `dst` |
+
+`datetime`, `timedelta`, and `date` are marked `is_totally_ordered = true` (support
+comparison operators). All built-in classes bypass policy checks.
 
 ### Special Built-in Functions
 
-| Function | Side Effects | Policy Exempt | Description |
-|---|---|---|---|
-| `query_ai_assistant(query, schema)` | No | Yes | Calls FLC quarantined LLM for unstructured-to-structured parsing |
-| `print(...)` | No | Yes | Accumulates output for display |
-| `prompt_user(question)` | Yes (blocks) | Yes | Pauses for user input, returns `Source::User` value |
+| Function | Side Effects | Policy Exempt | Source | Description |
+|---|---|---|---|---|
+| `query_ai_assistant(query, output_schema)` | No | Yes | Reference | Wraps FLC quarantined LLM. `query` is the prompt, `output_schema` is a BaseModel class. LLM and retries configured via `[llm.quarantined]` in skill config. Returns `Source::Tool("query_ai_assistant")` tagged values. |
+| `print(...)` | No | Yes | Reference | Returns `None` and discards arguments. Print output is captured by post-processing the tool calls chain (extracting args from recorded `print` FunctionCall entries), not by accumulating inside the function itself. |
+| `prompt_user(question)` | Yes (blocks) | Yes | **Novel addition** (not in reference) | Pauses interpreter for user input, returns `Source::User` value. Enables interactive review gates in multi-step skills. Policy exempt because the response comes directly from the human. |
 
 ### Error Handling
 
-`CamelException` contains the Python exception, AST node(s), and dependency chain. Untrusted
-exception messages are redacted (matching `is_trusted` check in reference's `format_camel_exception`).
-Errors are formatted as Python tracebacks and fed back to the privileged LLM for retry.
+Two distinct error paths, matching the reference:
+
+1. **Interpreter errors** (`CamelException`) — returned as `EvalResult::Error`. Contains
+   the Python exception, AST node(s), and dependency chain. Untrusted exception messages
+   are redacted (matching `is_trusted` check in reference's `format_camel_exception`).
+   Formatted as Python tracebacks and fed back to the privileged LLM for retry.
+
+2. **Security policy denials** (`SecurityPolicyDeniedError`) — raised as a hard error that
+   propagates out of the interpreter entirely. NOT wrapped in `CamelException`, NOT
+   retryable. This separation is what makes the `try/except` exclusion sufficient for
+   security (see "Why try/except Is Excluded" above).
 
 ## Security Policy Engine
 
@@ -314,7 +388,11 @@ enum PolicyResult {
 }
 ```
 
-`Denied` raises `SecurityPolicyDeniedError` — a hard stop, not retried.
+`Denied` raises `SecurityPolicyDeniedError` — a hard stop, not retried. The `reason`
+string includes the tool name and the non-public dependency values that triggered denial,
+matching the reference's `f"{tool_name} is state-changing and depends on private values
+{non_public_variables}"`. This provides debuggability for skill authors tuning their
+policies.
 
 ## Skill Configuration Format
 
@@ -430,9 +508,10 @@ param_mapping = { path = "file_path" }
 
 The engine connects to MCP servers that are already running and accessible. It does not
 spawn or manage MCP server processes. The `[servers]` entries resolve to MCP server
-identifiers (e.g., `mcp__atlassian`), and the engine communicates via JSON-RPC over stdio
-to a multiplexing MCP client that routes to the appropriate server. In CLI mode, the engine
-expects an MCP client proxy (or direct server stdio pipes) to be configured at startup.
+identifiers (e.g., `mcp__atlassian`), and the engine communicates via the MCP protocol
+to the appropriate server. The initial implementation uses JSON-RPC over stdio transport;
+other MCP transports (HTTP/SSE) can be supported later without changing the skill config
+format or the engine's internal architecture.
 
 #### `[servers]` — Server Registry
 
@@ -556,9 +635,9 @@ Each supported AST node type gets targeted tests. Python code strings passed to 
 with a test namespace, asserting on result value and its capabilities.
 
 Coverage: literals, variables, assignment, binary/unary/boolean/compare ops, collections,
-f-strings, control flow (if, for), comprehensions, try/except, class definitions, attribute
-access, method calls, unpacking, assert, raise, and all forbidden constructs (import, while,
-def, lambda, eval).
+f-strings, control flow (if, for), comprehensions, class definitions, attribute access,
+method calls, unpacking, raise, and all forbidden constructs (import, while, def, lambda,
+eval, try/except, assert, return, delete, match, generator expressions).
 
 ### Layer 3: Security Policy Enforcement
 
